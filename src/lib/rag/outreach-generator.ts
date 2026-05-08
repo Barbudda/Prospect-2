@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { validatePublicUrl } from "@/lib/utils/ssrf";
 
 function getClient(): Anthropic {
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -7,24 +8,8 @@ function getClient(): Anthropic {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 }
 
-// SSRF guard — reused from scripts pattern
-function isPublicUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
-    const h = parsed.hostname.toLowerCase();
-    if (h === "localhost" || h.startsWith("127.") || h === "0.0.0.0") return false;
-    const parts = h.split(".").map(Number);
-    if (parts.length === 4 && !parts.some(isNaN)) {
-      const [a, b] = parts;
-      if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return false;
-    }
-    return true;
-  } catch { return false; }
-}
-
 export async function fetchWebsiteContent(url: string): Promise<string | null> {
-  if (!isPublicUrl(url)) return null;
+  if (!validatePublicUrl(url).ok) return null;
   try {
     const res = await fetch(url, {
       headers: {

@@ -128,14 +128,12 @@ function businessToLead(
   };
 
   const { score, label } = scoreLead(partial);
-  const lead_type = leadType;
 
   return {
     ...partial,
     score,
     score_label: label,
-    lead_type,
-    suggested_angle: generateOutreachAngle(lead_type),
+    suggested_angle: generateOutreachAngle(leadType),
     source_url: partial.source_url!,
   } as NormalizedLead;
 }

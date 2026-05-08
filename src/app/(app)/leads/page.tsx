@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -64,7 +64,6 @@ const OUTREACH_COLORS: Record<OutreachStatus, string> = {
 
 export default function LeadsPage() {
   const sp = useSearchParams();
-  const router = useRouter();
   const runFilter = sp.get("run") ?? "";
 
   const [leads, setLeads] = useState<Lead[]>([]);

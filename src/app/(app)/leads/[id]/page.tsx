@@ -346,11 +346,6 @@ export default function LeadDetailPage() {
           ) : (
             <p className="text-sm text-muted-foreground">
               Click &ldquo;Generate with AI&rdquo; to create a personalized outreach email based on this lead&apos;s website and profile.
-              {!process.env.NEXT_PUBLIC_HAS_ANTHROPIC && (
-                <span className="block mt-1 text-amber-600 dark:text-amber-400 text-xs">
-                  Requires ANTHROPIC_API_KEY in .env.local
-                </span>
-              )}
             </p>
           )}
         </CardContent>

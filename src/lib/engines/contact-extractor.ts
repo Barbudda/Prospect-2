@@ -332,7 +332,6 @@ function extractNumberOfProperties(html: string): number | undefined {
 export interface CrawlOptions {
   maxPages?: number;
   timeoutMs?: number;
-  concurrency?: number;
 }
 
 export async function extractContactsFromWebsite(

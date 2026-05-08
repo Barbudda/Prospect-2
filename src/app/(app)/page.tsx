@@ -354,7 +354,6 @@ export default function DashboardPage() {
           </div>
           <div className="rounded-xl border border-border overflow-hidden divide-y divide-border/60">
             {recentRuns.map((run) => {
-              const isDone = ["completed", "failed", "cancelled"].includes(run.status);
               return (
                 <Link
                   key={run.id}
