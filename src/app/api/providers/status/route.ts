@@ -4,6 +4,7 @@ import type { ProviderStatusInfo } from "@/lib/types";
 
 function getEnvKey(name: string): string | undefined {
   const map: Record<string, string> = {
+    "Claude (Anthropic)": "ANTHROPIC_API_KEY",
     SerpAPI: "SERPAPI_API_KEY",
     "Brave Search": "BRAVE_SEARCH_API_KEY",
     "Google Programmable Search": "GOOGLE_PROGRAMMABLE_SEARCH_API_KEY",
@@ -26,6 +27,8 @@ function getEnvKey(name: string): string | undefined {
 }
 
 const PROVIDERS: Array<{ name: string; type: ProviderStatusInfo["type"]; description: string }> = [
+  // AI
+  { name: "Claude (Anthropic)", type: "ai", description: "AI outreach email writer — requires ANTHROPIC_API_KEY" },
   // Search
   { name: "SerpAPI", type: "search", description: "Google Search via SerpAPI" },
   { name: "Brave Search", type: "search", description: "Brave Web Search API" },

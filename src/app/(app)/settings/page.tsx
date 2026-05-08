@@ -18,6 +18,7 @@ interface ProviderWithKey extends ProviderStatusInfo {
 }
 
 const ENV_HINTS: Record<string, string> = {
+  "Claude (Anthropic)": "ANTHROPIC_API_KEY",
   SerpAPI: "SERPAPI_API_KEY",
   "Brave Search": "BRAVE_SEARCH_API_KEY",
   "Google Programmable Search": "GOOGLE_PROGRAMMABLE_SEARCH_API_KEY",
@@ -145,6 +146,7 @@ export default function SettingsPage() {
   const local = providers.filter((p) => p.type === "local_business");
   const enrichment = providers.filter((p) => p.type === "enrichment");
   const str = providers.filter((p) => p.type === "str_data");
+  const ai = providers.filter((p) => p.type === "ai");
 
   const hasAnyConfigured = providers.some((p) => p.status === "configured");
 
@@ -180,6 +182,7 @@ export default function SettingsPage() {
           <TabsTrigger value="search">Search</TabsTrigger>
           <TabsTrigger value="local">Local Business</TabsTrigger>
           <TabsTrigger value="enrichment">Enrichment</TabsTrigger>
+          <TabsTrigger value="ai">AI</TabsTrigger>
           <TabsTrigger value="str">STR Data</TabsTrigger>
         </TabsList>
 
@@ -227,6 +230,22 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent>
               {enrichment.map((p) => (
+                <ProviderCard key={p.name} provider={p} onTest={testProvider} />
+              ))}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="ai" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>AI Providers</CardTitle>
+              <CardDescription>
+                Used to generate personalized outreach emails for individual leads.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {ai.map((p) => (
                 <ProviderCard key={p.name} provider={p} onTest={testProvider} />
               ))}
             </CardContent>

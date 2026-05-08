@@ -33,7 +33,7 @@ export type OutreachStatus =
   | "unsubscribed"
   | "opted_out";
 
-export type ProviderType = "search" | "local_business" | "enrichment" | "str_data";
+export type ProviderType = "search" | "local_business" | "enrichment" | "str_data" | "ai";
 
 export type ProviderStatus = "configured" | "missing_key" | "failing" | "disabled";
 

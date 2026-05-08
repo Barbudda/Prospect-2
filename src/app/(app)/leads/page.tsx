@@ -25,6 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { Search } from "lucide-react";
 import type { ScoreLabel, OutreachStatus } from "@/lib/types";
 
 interface Lead {
@@ -62,6 +63,7 @@ export default function LeadsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   // Filters
+  const [search, setSearch] = useState("");
   const [scoreLabel, setScoreLabel] = useState("");
   const [leadType, setLeadType] = useState("");
   const [hasEmail, setHasEmail] = useState(false);
@@ -74,6 +76,7 @@ export default function LeadsPage() {
     try {
       const params = new URLSearchParams({ page: String(page), limit: "50" });
       if (runFilter) params.set("run", runFilter);
+      if (search) params.set("q", search);
       if (scoreLabel) params.set("score_label", scoreLabel);
       if (leadType) params.set("lead_type", leadType);
       if (hasEmail) params.set("has_email", "true");
@@ -91,7 +94,7 @@ export default function LeadsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, runFilter, scoreLabel, leadType, hasEmail, hasPhone, hasWebsite, outreachStatus]);
+  }, [page, runFilter, search, scoreLabel, leadType, hasEmail, hasPhone, hasWebsite, outreachStatus]);
 
   useEffect(() => {
     fetchLeads();
@@ -163,7 +166,17 @@ export default function LeadsPage() {
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Search + Filters */}
+      <div className="space-y-3">
+      <div className="relative max-w-sm">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+        <Input
+          placeholder="Search by name or email..."
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          className="pl-8 h-9"
+        />
+      </div>
       <div className="flex flex-wrap gap-3 items-end">
         <div className="w-40">
           <Select value={scoreLabel} onValueChange={(v: string | null) => { setScoreLabel(!v || v === "__all" ? "" : v); setPage(1); }}>
@@ -231,6 +244,7 @@ export default function LeadsPage() {
             <Label htmlFor="hasWebsite">Has website</Label>
           </div>
         </div>
+      </div>
       </div>
 
       {/* Table */}
