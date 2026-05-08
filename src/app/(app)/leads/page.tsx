@@ -25,7 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Search } from "lucide-react";
+import { Search, Sparkles } from "lucide-react";
 import type { ScoreLabel, OutreachStatus } from "@/lib/types";
 
 interface Lead {
@@ -61,6 +61,7 @@ export default function LeadsPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [generatingBulk, setGeneratingBulk] = useState(false);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -133,6 +134,27 @@ export default function LeadsPage() {
     }
   }
 
+  async function generateBulkOutreach() {
+    const ids = Array.from(selected).slice(0, 10);
+    if (ids.length === 0) return;
+    setGeneratingBulk(true);
+    try {
+      const res = await fetch("/api/leads/bulk-outreach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      toast.success(`Generated outreach emails for ${data.succeeded}/${data.total} leads`);
+      fetchLeads();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate emails");
+    } finally {
+      setGeneratingBulk(false);
+    }
+  }
+
   async function exportCSV() {
     const params = new URLSearchParams();
     if (runFilter) params.set("run", runFilter);
@@ -152,6 +174,18 @@ export default function LeadsPage() {
         <div className="flex gap-2">
           {selected.size > 0 && (
             <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={generateBulkOutreach}
+                disabled={generatingBulk}
+                className="gap-1.5"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                {generatingBulk
+                  ? "Generating..."
+                  : `Generate Emails (${Math.min(selected.size, 10)})`}
+              </Button>
               <Button variant="outline" size="sm" onClick={() => markSelected("contacted")}>
                 Mark Contacted ({selected.size})
               </Button>

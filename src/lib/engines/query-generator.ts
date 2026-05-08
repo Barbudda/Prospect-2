@@ -39,6 +39,11 @@ export function generateQueries(
     `Airbnb co host ${c}`,
     `gestionnaire location saisonnière ${c}`,
     `property management Airbnb ${c}`,
+    `gestion appartement vacances ${c}`,
+    `location meublé tourisme ${c}`,
+    `agence immobilière location saisonnière ${c}`,
+    `gestion locative courte durée ${c}`,
+    `conciergerie vacances ${c}`,
   ];
 
   const lbEn = [
@@ -50,6 +55,7 @@ export function generateQueries(
     `holiday rental agency ${c}`,
     `STR management ${c}`,
     `Airbnb management company ${c}`,
+    `vacation rental company ${c}`,
   ];
 
   queries.localBusiness = fr
@@ -57,68 +63,126 @@ export function generateQueries(
     : [...lbEn, ...lbFr].slice(0, maxQueries);
 
   // ── Web Search queries ────────────────────────────────────────────────────
-  const allWebFr = [
-    // Concierge / management
-    `conciergerie Airbnb ${c}`,
-    `gestion Airbnb ${c}`,
-    `gestion location courte durée ${c}`,
-    `gestion location saisonnière ${c}`,
-    `co-hôte Airbnb ${c}`,
-    `cohost Airbnb ${c}`,
-    // Direct booking
-    `location vacances ${c} contact propriétaire`,
-    `villa ${c} réservation directe`,
-    `maison vacances ${c} contact`,
-    `gîte ${c} contact propriétaire`,
-    `appartement vacances ${c} réservation directe`,
-    // Airbnb-related
-    `Airbnb ${c} contact`,
-    `Superhost ${c} Airbnb`,
-    `hôte Airbnb ${c}`,
-    `Airbnb villa ${c}`,
-    `Airbnb maison ${c} propriétaire`,
-    // Social discovery
-    `site:instagram.com conciergerie Airbnb ${c}`,
-    `site:instagram.com location saisonnière ${c}`,
-    `site:linkedin.com/company conciergerie Airbnb ${c}`,
-    `site:facebook.com conciergerie Airbnb ${c}`,
-  ];
+  const allWebFr: string[] = [];
 
-  const allWebEn = [
-    `Airbnb concierge ${c}`,
-    `property manager Airbnb ${c}`,
-    `short term rental management ${c}`,
-    `vacation rental agency ${c}`,
-    `Airbnb co-host ${c}`,
-    `book direct ${c} vacation rental`,
-    `direct booking ${c} Airbnb`,
-    `holiday rental ${c} owner contact`,
-    `Airbnb superhost ${c}`,
-    `STR management company ${c}`,
-    `site:instagram.com Airbnb ${c}`,
-    `site:linkedin.com/company vacation rental ${c}`,
-    `site:facebook.com Airbnb ${c}`,
-  ];
+  // ─ Concierge / management ─
+  if (targetType === "all" || targetType === "concierges" || targetType === "property_managers") {
+    allWebFr.push(
+      `conciergerie Airbnb ${c}`,
+      `gestion Airbnb ${c}`,
+      `gestion location courte durée ${c}`,
+      `gestion location saisonnière ${c}`,
+      `co-hôte Airbnb ${c}`,
+      `cohost Airbnb ${c}`,
+      `gestionnaire Airbnb ${c}`,
+      `service conciergerie Airbnb ${c}`,
+      `"gestion Airbnb" ${c}`,
+      `"location courte durée" gestion ${c}`,
+      `confiez votre appartement Airbnb ${c}`,
+      `"location saisonnière" gestion ${c}`,
+      `gestion locative Airbnb ${c}`,
+      `"property management" ${c} Airbnb`,
+      `Airbnb property manager ${c}`,
+      `gestionnaire location touristique ${c}`,
+    );
+  }
 
-  let webQueries: string[] = fr
+  // ─ Direct booking owners ─
+  if (targetType === "all" || targetType === "direct_owners") {
+    allWebFr.push(
+      `location vacances ${c} contact propriétaire`,
+      `villa ${c} réservation directe`,
+      `maison vacances ${c} contact`,
+      `gîte ${c} contact propriétaire`,
+      `appartement vacances ${c} réservation directe`,
+      `"réservation directe" villa ${c}`,
+      `"réservez directement" ${c}`,
+      `location villa ${c} particulier`,
+      `location appartement ${c} propriétaire direct`,
+      `chalet ${c} réservation directe propriétaire`,
+      `maison hôtes ${c} contact`,
+    );
+  }
+
+  // ─ Agencies ─
+  if (targetType === "all" || targetType === "agencies") {
+    allWebFr.push(
+      `agence location saisonnière ${c}`,
+      `agence immobilière location courte durée ${c}`,
+      `agence location vacances ${c}`,
+      `"location saisonnière" agence ${c}`,
+      `agence tourisme location ${c}`,
+      `location meublé tourisme ${c} agence`,
+    );
+  }
+
+  // ─ Airbnb-related ─
+  if (targetType === "all") {
+    allWebFr.push(
+      `Airbnb ${c} contact`,
+      `Superhost ${c} Airbnb`,
+      `hôte Airbnb ${c}`,
+      `Airbnb villa ${c}`,
+      `Airbnb maison ${c} propriétaire`,
+      `superhôte Airbnb ${c}`,
+      `"Airbnb" "contact" ${c}`,
+    );
+  }
+
+  // ─ Social discovery ─
+  if (targetType === "all" || targetType === "concierges") {
+    allWebFr.push(
+      `site:instagram.com conciergerie Airbnb ${c}`,
+      `site:instagram.com "location saisonnière" ${c}`,
+      `site:linkedin.com/company conciergerie Airbnb ${c}`,
+      `site:linkedin.com/company "location saisonnière" ${c}`,
+      `site:facebook.com conciergerie Airbnb ${c}`,
+    );
+  }
+
+  const allWebEn: string[] = [];
+
+  if (targetType === "all" || targetType === "concierges" || targetType === "property_managers") {
+    allWebEn.push(
+      `Airbnb concierge ${c}`,
+      `property manager Airbnb ${c}`,
+      `short term rental management ${c}`,
+      `Airbnb property management company ${c}`,
+      `STR management company ${c}`,
+      `vacation rental management company ${c}`,
+      `"Airbnb management" ${c}`,
+    );
+  }
+
+  if (targetType === "all" || targetType === "direct_owners") {
+    allWebEn.push(
+      `vacation rental ${c} owner contact`,
+      `book direct ${c} vacation rental`,
+      `direct booking ${c} Airbnb`,
+      `holiday rental ${c} owner contact`,
+      `"book direct" villa ${c}`,
+    );
+  }
+
+  if (targetType === "all" || targetType === "agencies") {
+    allWebEn.push(
+      `vacation rental agency ${c}`,
+      `holiday rental agency ${c}`,
+      `Airbnb co-host ${c}`,
+    );
+  }
+
+  if (targetType === "all") {
+    allWebEn.push(
+      `Airbnb superhost ${c}`,
+      `site:instagram.com Airbnb ${c}`,
+      `site:linkedin.com/company vacation rental ${c}`,
+    );
+  }
+
+  const webQueries: string[] = fr
     ? [...allWebFr, ...allWebEn]
     : [...allWebEn, ...allWebFr];
-
-  // Filter by target type
-  if (targetType !== "all") {
-    const filterMap: Record<string, string[]> = {
-      concierges: ["conciergerie", "concierge", "gestion", "management", "gestionnaire"],
-      property_managers: ["property manager", "gestionnaire", "gestion locative", "property management"],
-      direct_owners: ["propriétaire", "réservation directe", "book direct", "owner contact"],
-      agencies: ["agence", "agency", "saisonnière", "seasonal"],
-    };
-    const keywords = filterMap[targetType] || [];
-    if (keywords.length > 0) {
-      webQueries = webQueries.filter((q) =>
-        keywords.some((k) => q.toLowerCase().includes(k))
-      );
-    }
-  }
 
   queries.webSearch = webQueries.slice(0, maxQueries);
 
