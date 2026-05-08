@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
+import { Download } from "lucide-react";
 import type { RunStatus, RunStats, LogLevel } from "@/lib/types";
 
 interface LogEntry {
@@ -174,12 +175,21 @@ export default function RunProgressPage() {
           </Button>
         )}
         {(data.status === "completed" || data.lead_count > 0) && (
-          <Link
-            href={`/leads?run=${runId}`}
-            className="inline-flex items-center justify-center rounded-lg h-7 gap-1 px-2.5 text-[0.8rem] font-medium bg-primary text-primary-foreground hover:bg-primary/80 transition-colors"
-          >
-            View {data.lead_count} Leads →
-          </Link>
+          <>
+            <Link
+              href={`/leads?run=${runId}`}
+              className="inline-flex items-center justify-center rounded-lg h-7 gap-1 px-2.5 text-[0.8rem] font-medium bg-primary text-primary-foreground hover:bg-primary/80 transition-colors"
+            >
+              View {data.lead_count} Leads →
+            </Link>
+            <a
+              href={`/api/export/csv?run=${runId}`}
+              className="inline-flex items-center gap-1 rounded-lg h-7 px-2.5 text-[0.8rem] font-medium border border-border hover:bg-muted transition-colors"
+            >
+              <Download className="h-3 w-3" />
+              Download CSV
+            </a>
+          </>
         )}
         {isDone && data.lead_count === 0 && data.status !== "failed" && (
           <p className="text-sm text-muted-foreground self-center">

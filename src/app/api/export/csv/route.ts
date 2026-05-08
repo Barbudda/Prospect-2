@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+
 const CSV_COLUMNS = [
   "score",
   "score_label",
@@ -50,6 +52,7 @@ export async function GET(req: NextRequest) {
     .from("leads")
     .select(CSV_COLUMNS.join(","))
     .eq("user_id", user.id)
+    .neq("status", "draft")
     .order("score", { ascending: false });
 
   if (run_id) query = query.eq("run_id", run_id);

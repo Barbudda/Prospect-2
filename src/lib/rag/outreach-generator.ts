@@ -1,6 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+function getClient(): Anthropic {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error("ANTHROPIC_API_KEY is not configured. Add it to your environment variables.");
+  }
+  return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+}
 
 // SSRF guard — reused from scripts pattern
 function isPublicUrl(url: string): boolean {
@@ -56,9 +61,7 @@ export interface LeadContext {
 }
 
 export async function generateOutreachEmail(lead: LeadContext): Promise<string> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error("ANTHROPIC_API_KEY is not configured");
-  }
+  const client = getClient();
 
   const websiteSection = lead.website_content
     ? `\n\nContenu du site web du prospect :\n"""\n${lead.website_content}\n"""`
