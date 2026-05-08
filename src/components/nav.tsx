@@ -4,10 +4,11 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
-import { Sun, Moon, LogOut, LayoutDashboard, Users, Settings } from "lucide-react";
+import { Sun, Moon, LogOut, LayoutDashboard, Users, Settings, History } from "lucide-react";
 
 const NAV_LINKS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/runs", label: "Runs", icon: History },
   { href: "/leads", label: "Leads", icon: Users },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -40,7 +41,7 @@ export function Nav() {
           {/* Nav links */}
           <div className="flex items-center gap-1">
             {NAV_LINKS.map(({ href, label, icon: Icon }) => {
-              const active = pathname === href;
+              const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
               return (
                 <Link
                   key={href}

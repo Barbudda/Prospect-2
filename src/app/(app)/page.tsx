@@ -14,12 +14,24 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Search, AlertTriangle, Zap, Globe, Mail, Building2, ChevronDown } from "lucide-react";
+import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
+import { Search, AlertTriangle, Zap, Globe, Mail, Building2, ChevronDown, History, ChevronRight, MapPin } from "lucide-react";
+import type { RunStatus } from "@/lib/types";
 
 interface ProviderStatus {
   name: string;
   type: string;
   status: "configured" | "missing_key" | "failing" | "disabled";
+}
+
+interface RecentRun {
+  id: string;
+  city: string;
+  country: string;
+  status: RunStatus;
+  lead_count: number;
+  created_at: string;
 }
 
 export default function DashboardPage() {
@@ -35,11 +47,16 @@ export default function DashboardPage() {
   const [enableExtraction, setEnableExtraction] = useState(true);
   const [enableEnrichment, setEnableEnrichment] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [recentRuns, setRecentRuns] = useState<RecentRun[]>([]);
 
   useEffect(() => {
     fetch("/api/providers/status")
       .then((r) => r.json())
       .then((d) => setProviders(d.providers ?? []))
+      .catch(() => {});
+    fetch("/api/runs?limit=5")
+      .then((r) => r.json())
+      .then((d) => setRecentRuns(d.runs ?? []))
       .catch(() => {});
   }, []);
 
@@ -291,6 +308,55 @@ export default function DashboardPage() {
           </p>
         </div>
       </div>
+
+      {/* Recent Runs */}
+      {recentRuns.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+              <History className="h-3.5 w-3.5 text-muted-foreground" />
+              Recent Runs
+            </h2>
+            <Link href="/runs" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+              View all →
+            </Link>
+          </div>
+          <div className="rounded-xl border border-border overflow-hidden divide-y divide-border/60">
+            {recentRuns.map((run) => {
+              const isDone = ["completed", "failed", "cancelled"].includes(run.status);
+              return (
+                <Link
+                  key={run.id}
+                  href={`/runs/${run.id}`}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors group"
+                >
+                  <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{run.city}, {run.country}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(run.created_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {run.lead_count > 0 && (
+                      <span className="text-xs font-medium text-foreground">
+                        {run.lead_count} leads
+                      </span>
+                    )}
+                    <Badge
+                      variant={run.status === "completed" ? "outline" : run.status === "failed" ? "destructive" : "secondary"}
+                      className="text-[10px] capitalize"
+                    >
+                      {run.status}
+                    </Badge>
+                  </div>
+                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground shrink-0 transition-colors" />
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Bottom padding */}
       <div className="h-12" />
