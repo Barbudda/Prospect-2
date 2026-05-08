@@ -19,16 +19,25 @@ export async function GET(req: NextRequest) {
     const outreach_status = sp.get("outreach_status");
     const city = sp.get("city");
     const search = sp.get("q");
+    const sort = sp.get("sort") ?? "score_desc";
     const page = parseInt(sp.get("page") ?? "1", 10);
     const limit = Math.min(parseInt(sp.get("limit") ?? "50", 10), 200);
     const offset = (page - 1) * limit;
+
+    const orderMap: Record<string, { column: string; ascending: boolean; nullsFirst?: boolean }> = {
+      score_desc: { column: "score", ascending: false },
+      score_asc: { column: "score", ascending: true },
+      newest: { column: "created_at", ascending: false },
+      email_first: { column: "email", ascending: false, nullsFirst: false },
+    };
+    const { column: orderCol, ascending: orderAsc } = orderMap[sort] ?? orderMap.score_desc;
 
     let query = supabase
       .from("leads")
       .select("id, primary_name, lead_type, city, country, email, phone, website_url, source_url, score, score_label, outreach_status, outreach_email, run_id", { count: "exact" })
       .eq("user_id", user.id)
       .neq("status", "draft")
-      .order("score", { ascending: false })
+      .order(orderCol, { ascending: orderAsc })
       .range(offset, offset + limit - 1);
 
     if (run_id) query = query.eq("run_id", run_id);

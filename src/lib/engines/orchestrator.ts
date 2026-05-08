@@ -559,11 +559,21 @@ export async function runSearchOrchestrator(
 
         for (const lead of leadsToEnrich) {
           try {
-            const result = await provider.enrichCompany(
+            let result = await provider.enrichCompany(
               lead.domain!,
               lead.company_name ?? lead.primary_name,
               country
             );
+
+            // If company enrichment found nothing but we have a person name, try person enrichment
+            if (result.status !== "success" && lead.person_name && lead.domain) {
+              result = await provider.enrichPerson(
+                lead.person_name,
+                lead.company_name ?? lead.primary_name,
+                lead.domain,
+                country
+              );
+            }
 
             if (result.status === "success" && result.emails && result.emails.length > 0) {
               const idx = allLeads.findIndex((l) => l.domain === lead.domain);

@@ -82,6 +82,7 @@ export default function LeadsPage() {
   const [hasPhone, setHasPhone] = useState(false);
   const [hasWebsite, setHasWebsite] = useState(false);
   const [outreachStatus, setOutreachStatus] = useState("");
+  const [sortBy, setSortBy] = useState("score_desc");
 
   const fetchLeads = useCallback(async () => {
     setLoading(true);
@@ -95,6 +96,7 @@ export default function LeadsPage() {
       if (hasPhone) params.set("has_phone", "true");
       if (hasWebsite) params.set("has_website", "true");
       if (outreachStatus) params.set("outreach_status", outreachStatus);
+      if (sortBy) params.set("sort", sortBy);
 
       const res = await fetch(`/api/leads?${params.toString()}`);
       if (!res.ok) throw new Error("Failed to fetch leads");
@@ -106,7 +108,7 @@ export default function LeadsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, runFilter, search, scoreLabel, leadType, hasEmail, hasPhone, hasWebsite, outreachStatus]);
+  }, [page, runFilter, search, scoreLabel, leadType, hasEmail, hasPhone, hasWebsite, outreachStatus, sortBy]);
 
   useEffect(() => {
     fetchLeads();
@@ -325,6 +327,20 @@ export default function LeadsPage() {
               <SelectItem value="converted">Converted</SelectItem>
               <SelectItem value="unsubscribed">Unsubscribed</SelectItem>
               <SelectItem value="opted_out">Opted out</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="w-40">
+          <Select value={sortBy} onValueChange={(v: string | null) => { if (v) { setSortBy(v); setPage(1); } }}>
+            <SelectTrigger>
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="score_desc">Score ↓</SelectItem>
+              <SelectItem value="score_asc">Score ↑</SelectItem>
+              <SelectItem value="newest">Newest first</SelectItem>
+              <SelectItem value="email_first">Email first</SelectItem>
             </SelectContent>
           </Select>
         </div>
