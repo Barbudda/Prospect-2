@@ -23,17 +23,38 @@ export async function GET(req: NextRequest) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // Fetch lead counts for each run in one query
+    // Fetch lead counts for each run in one query.
+    // For active runs, include draft leads so the progress page shows live count.
+    // For finished runs, exclude drafts (they were replaced at completion).
     const runIds = (runs ?? []).map((r) => r.id);
+    const activeStatuses = ["queued", "running", "collecting_sources", "extracting_contacts", "enriching", "deduplicating", "scoring"];
+    const activeRunIds = (runs ?? []).filter((r) => activeStatuses.includes(r.status)).map((r) => r.id);
+    const finishedRunIds = (runs ?? []).filter((r) => !activeStatuses.includes(r.status)).map((r) => r.id);
+
     let leadCounts: Record<string, number> = {};
     if (runIds.length > 0) {
-      const { data: counts } = await supabase
-        .from("leads")
-        .select("run_id")
-        .eq("user_id", user.id)
-        .in("run_id", runIds);
-      for (const row of counts ?? []) {
-        leadCounts[row.run_id] = (leadCounts[row.run_id] ?? 0) + 1;
+      // For active runs: count all leads including drafts (live progress)
+      if (activeRunIds.length > 0) {
+        const { data: activeCounts } = await supabase
+          .from("leads")
+          .select("run_id")
+          .eq("user_id", user.id)
+          .in("run_id", activeRunIds);
+        for (const row of activeCounts ?? []) {
+          leadCounts[row.run_id] = (leadCounts[row.run_id] ?? 0) + 1;
+        }
+      }
+      // For finished runs: exclude drafts
+      if (finishedRunIds.length > 0) {
+        const { data: finishedCounts } = await supabase
+          .from("leads")
+          .select("run_id")
+          .eq("user_id", user.id)
+          .neq("status", "draft")
+          .in("run_id", finishedRunIds);
+        for (const row of finishedCounts ?? []) {
+          leadCounts[row.run_id] = (leadCounts[row.run_id] ?? 0) + 1;
+        }
       }
     }
 

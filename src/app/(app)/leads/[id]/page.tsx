@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -110,7 +110,6 @@ function ContactItem({ label, value, href }: { label: string; value: string; hre
 
 export default function LeadDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
   const [lead, setLead] = useState<LeadDetail | null>(null);
   const [notes, setNotes] = useState("");
   const [outreachStatus, setOutreachStatus] = useState<OutreachStatus>("not_contacted");
@@ -169,24 +168,26 @@ export default function LeadDetailPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">{lead.primary_name}</h1>
-            <span
-              className={`rounded px-2 py-0.5 text-xs font-bold ${SCORE_COLORS[lead.score_label]}`}
-            >
-              {lead.score} — {lead.score_label}
-            </span>
+      {/* Breadcrumb + header */}
+      <div>
+        <Link href="/leads" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-3 transition-colors">
+          ← All leads
+        </Link>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold">{lead.primary_name}</h1>
+              <span
+                className={`rounded px-2 py-0.5 text-xs font-bold ${SCORE_COLORS[lead.score_label]}`}
+              >
+                {lead.score} — {lead.score_label}
+              </span>
+            </div>
+            <p className="text-sm text-muted-foreground mt-1">
+              {lead.lead_type} · {lead.city}, {lead.country}
+            </p>
           </div>
-          <p className="text-sm text-muted-foreground mt-1">
-            {lead.lead_type} · {lead.city}, {lead.country}
-          </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => router.back()}>
-          ← Back
-        </Button>
       </div>
 
       {/* Contact Details */}

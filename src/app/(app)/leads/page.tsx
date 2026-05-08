@@ -25,7 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Search, Sparkles } from "lucide-react";
+import { Search, Sparkles, RefreshCw } from "lucide-react";
 import type { ScoreLabel, OutreachStatus } from "@/lib/types";
 
 interface Lead {
@@ -230,6 +230,10 @@ export default function LeadsPage() {
               </Button>
             </>
           )}
+          <Button variant="outline" size="sm" onClick={fetchLeads} disabled={loading} className="gap-1.5">
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
           <Button variant="outline" size="sm" onClick={exportCSV}>
             Export {selected.size > 0 ? `Selected (${selected.size})` : "CSV"}
           </Button>
