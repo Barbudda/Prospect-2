@@ -55,20 +55,26 @@ export class GooglePlacesProvider implements LocalBusinessProvider {
       });
     }
 
-    // Fetch website/phone for each place via Details endpoint
+    // Fetch website/phone for each place via Details endpoint — in parallel
+    const DETAIL_BATCH = 5;
     const enriched: RawBusinessResult[] = [];
-    for (const r of results) {
-      const payload = r.raw_provider_payload as Record<string, unknown>;
-      const placeId = payload?.place_id as string | undefined;
-      if (placeId) {
-        try {
-          const det = await this.fetchDetails(placeId);
-          enriched.push({ ...r, website: det.website, phone: det.phone });
-        } catch {
-          enriched.push(r);
-        }
-      } else {
-        enriched.push(r);
+    for (let i = 0; i < results.length; i += DETAIL_BATCH) {
+      const batch = results.slice(i, i + DETAIL_BATCH);
+      const details = await Promise.allSettled(
+        batch.map(async (r) => {
+          const payload = r.raw_provider_payload as Record<string, unknown>;
+          const placeId = payload?.place_id as string | undefined;
+          if (!placeId) return r;
+          try {
+            const det = await this.fetchDetails(placeId);
+            return { ...r, website: det.website, phone: det.phone };
+          } catch {
+            return r;
+          }
+        })
+      );
+      for (const d of details) {
+        enriched.push(d.status === "fulfilled" ? d.value : batch[details.indexOf(d)]);
       }
     }
 
