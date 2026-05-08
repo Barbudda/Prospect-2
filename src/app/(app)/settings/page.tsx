@@ -56,7 +56,7 @@ function ProviderCard({
   provider: ProviderWithKey;
   onTest: (name: string) => void;
 }) {
-  const isTestable = ["SerpAPI", "Brave Search", "Google Places", "Hunter.io", "Claude (Anthropic)"].includes(provider.name);
+  const isTestable = ["SerpAPI", "Brave Search", "Tavily", "Google Places", "Hunter.io", "Claude (Anthropic)"].includes(provider.name);
   const envKey = ENV_HINTS[provider.name];
   const isStrData = provider.type === "str_data";
 

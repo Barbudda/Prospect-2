@@ -78,6 +78,22 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true });
       }
 
+      case "Tavily": {
+        if (!process.env.TAVILY_API_KEY) {
+          return NextResponse.json({ ok: false, error: "TAVILY_API_KEY not configured" });
+        }
+        const res = await fetch("https://api.tavily.com/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ api_key: process.env.TAVILY_API_KEY, query: "test", max_results: 1 }),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) {
+          return NextResponse.json({ ok: false, error: `Tavily returned HTTP ${res.status} — check your API key` });
+        }
+        return NextResponse.json({ ok: true });
+      }
+
       case "Claude (Anthropic)": {
         if (!process.env.ANTHROPIC_API_KEY) {
           return NextResponse.json({ ok: false, error: "ANTHROPIC_API_KEY not configured" });

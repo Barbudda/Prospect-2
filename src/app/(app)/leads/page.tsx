@@ -135,6 +135,23 @@ export default function LeadsPage() {
     }
   }
 
+  async function deleteSelected() {
+    if (selected.size === 0) return;
+    if (!confirm(`Delete ${selected.size} lead(s)? This cannot be undone.`)) return;
+    try {
+      await fetch("/api/leads", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(selected) }),
+      });
+      toast.success(`${selected.size} lead(s) deleted`);
+      setSelected(new Set());
+      fetchLeads();
+    } catch {
+      toast.error("Failed to delete leads");
+    }
+  }
+
   async function generateBulkOutreach() {
     const ids = Array.from(selected).slice(0, 10);
     if (ids.length === 0) return;
@@ -192,6 +209,14 @@ export default function LeadsPage() {
               </Button>
               <Button variant="outline" size="sm" onClick={() => markSelected("unsubscribed")}>
                 Mark Unsubscribed
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-destructive hover:bg-destructive/10"
+                onClick={deleteSelected}
+              >
+                Delete ({selected.size})
               </Button>
             </>
           )}

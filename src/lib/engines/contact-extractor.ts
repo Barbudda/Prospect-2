@@ -180,18 +180,42 @@ function extractSocialLinks(html: string): {
 } {
   const result: Record<string, string> = {};
 
-  const patterns: Array<[string, RegExp]> = [
-    ["instagram", /href="(https?:\/\/(?:www\.)?instagram\.com\/[^"?]+)"/i],
-    ["linkedin", /href="(https?:\/\/(?:www\.)?linkedin\.com\/(?:in|company)\/[^"?]+)"/i],
-    ["facebook", /href="(https?:\/\/(?:www\.)?facebook\.com\/[^"?]+)"/i],
-    ["whatsapp", /href="(https?:\/\/(?:wa\.me|api\.whatsapp\.com)\/[^"?]+)"/i],
-    ["tiktok", /href="(https?:\/\/(?:www\.)?tiktok\.com\/@[^"?]+)"/i],
-    ["youtube", /href="(https?:\/\/(?:www\.)?youtube\.com\/[^"?]+)"/i],
+  const patterns: Array<[string, RegExp[]]> = [
+    ["instagram", [
+      /href="(https?:\/\/(?:www\.)?instagram\.com\/[^"?#\s]+)"/i,
+      /href='(https?:\/\/(?:www\.)?instagram\.com\/[^'?#\s]+)'/i,
+    ]],
+    ["linkedin", [
+      /href="(https?:\/\/(?:www\.)?linkedin\.com\/(?:in|company)\/[^"?#\s]+)"/i,
+      /href='(https?:\/\/(?:www\.)?linkedin\.com\/(?:in|company)\/[^'?#\s]+)'/i,
+    ]],
+    ["facebook", [
+      /href="(https?:\/\/(?:www\.)?facebook\.com\/[^"?#\s]+)"/i,
+      /href='(https?:\/\/(?:www\.)?facebook\.com\/[^'?#\s]+)'/i,
+    ]],
+    ["whatsapp", [
+      // Explicit wa.me or api.whatsapp.com links
+      /href="(https?:\/\/(?:wa\.me|api\.whatsapp\.com)\/[^"?\s]+)"/i,
+      /href='(https?:\/\/(?:wa\.me|api\.whatsapp\.com)\/[^'?\s]+)'/i,
+      // WhatsApp click-to-chat with phone number in URL
+      /href="(https?:\/\/wa\.me\/\d+[^"?\s]*)"/i,
+    ]],
+    ["tiktok", [
+      /href="(https?:\/\/(?:www\.)?tiktok\.com\/@[^"?#\s]+)"/i,
+    ]],
+    ["youtube", [
+      /href="(https?:\/\/(?:www\.)?youtube\.com\/[^"?#\s]+)"/i,
+    ]],
   ];
 
-  for (const [key, pattern] of patterns) {
-    const m = html.match(pattern);
-    if (m?.[1]) result[key] = m[1];
+  for (const [key, patternList] of patterns) {
+    for (const pattern of patternList) {
+      const m = html.match(pattern);
+      if (m?.[1]) {
+        result[key] = m[1];
+        break;
+      }
+    }
   }
 
   return result;
@@ -239,6 +263,8 @@ const STR_KEYWORDS = [
   "short-term rental",
   "short term rental",
   "confiez-nous",
+  "confiez votre",
+  "confiez nous",
   "superhost",
   "superhôte",
   "co-hôte",
@@ -249,6 +275,18 @@ const STR_KEYWORDS = [
   "ménage",
   "nettoyage",
   "logement",
+  "gestion airbnb",
+  "gestion de location",
+  "meublé tourisme",
+  "gîte",
+  "villa",
+  "chalet",
+  "mas",
+  "bastide",
+  "propriétaires",
+  "property manager",
+  "gestionnaire",
+  "location meublée",
 ];
 
 function extractKeywords(html: string): string[] {
