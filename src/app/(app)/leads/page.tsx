@@ -25,7 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Search, Sparkles, RefreshCw } from "lucide-react";
+import { Search, Sparkles, RefreshCw, Copy } from "lucide-react";
 import type { ScoreLabel, OutreachStatus } from "@/lib/types";
 
 interface Lead {
@@ -145,6 +145,22 @@ export default function LeadsPage() {
     }
   }
 
+  async function copyEmails() {
+    const emails = leads
+      .filter((l) => selected.has(l.id) && l.email)
+      .map((l) => l.email as string);
+    if (emails.length === 0) {
+      toast.error("No emails found in selected leads");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(emails.join("\n"));
+      toast.success(`${emails.length} email(s) copied to clipboard`);
+    } catch {
+      toast.error("Failed to copy to clipboard");
+    }
+  }
+
   async function deleteSelected() {
     if (selected.size === 0) return;
     if (!confirm(`Delete ${selected.size} lead(s)? This cannot be undone.`)) return;
@@ -202,6 +218,15 @@ export default function LeadsPage() {
         <div className="flex gap-2">
           {selected.size > 0 && (
             <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={copyEmails}
+                className="gap-1.5"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Copy Emails
+              </Button>
               <Button
                 variant="outline"
                 size="sm"

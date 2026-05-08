@@ -69,6 +69,7 @@ export default function RunProgressPage() {
   const router = useRouter();
   const [data, setData] = useState<StatusData | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -99,6 +100,19 @@ export default function RunProgressPage() {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [runId]);
+
+  async function handleRetry() {
+    setRetrying(true);
+    try {
+      await fetch(`/api/runs/${runId}/retry`, { method: "POST" });
+      toast.info("Restarting run...");
+      fetchStatus();
+    } catch {
+      toast.error("Failed to retry run");
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   async function handleCancel() {
     setCancelling(true);
@@ -210,12 +224,22 @@ export default function RunProgressPage() {
           </Button>
         )}
         {data.status === "failed" && (
-          <Link
-            href="/"
-            className="inline-flex items-center justify-center rounded-lg h-7 px-2.5 text-[0.8rem] font-medium border border-border hover:bg-muted transition-colors"
-          >
-            New Search
-          </Link>
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRetry}
+              disabled={retrying}
+            >
+              {retrying ? "Retrying..." : "Retry Run"}
+            </Button>
+            <Link
+              href="/"
+              className="inline-flex items-center justify-center rounded-lg h-7 px-2.5 text-[0.8rem] font-medium border border-border hover:bg-muted transition-colors"
+            >
+              New Search
+            </Link>
+          </>
         )}
         {(data.status === "completed" || data.lead_count > 0) && (
           <>
