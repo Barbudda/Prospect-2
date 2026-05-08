@@ -2,31 +2,46 @@
 -- Run this migration in your Supabase SQL editor or via supabase db push
 
 -- ─────────────────────────────────────────────
+-- CLEAN SLATE (drop everything in reverse order)
+-- ─────────────────────────────────────────────
+drop trigger if exists on_auth_user_created on auth.users;
+drop function if exists handle_new_user();
+
+drop table if exists exports cascade;
+drop table if exists provider_settings cascade;
+drop table if exists lead_enrichment_events cascade;
+drop table if exists lead_signals cascade;
+drop table if exists lead_contacts cascade;
+drop table if exists lead_sources cascade;
+drop table if exists leads cascade;
+drop table if exists raw_sources cascade;
+drop table if exists search_run_logs cascade;
+drop table if exists search_runs cascade;
+drop table if exists profiles cascade;
+
+-- ─────────────────────────────────────────────
 -- PROFILES
 -- ─────────────────────────────────────────────
-create table if not exists profiles (
+create table profiles (
   id         uuid primary key references auth.users on delete cascade,
-  user_id    uuid not null unique references auth.users on delete cascade,
   email      text,
   full_name  text,
   created_at timestamptz default now()
 );
 
 alter table profiles enable row level security;
-create policy "profiles_own" on profiles for all using (auth.uid() = user_id);
+create policy "profiles_own" on profiles for all using (auth.uid() = id);
 
--- auto-create profile on signup
 create or replace function handle_new_user()
 returns trigger language plpgsql security definer as $$
 begin
-  insert into profiles (id, user_id, email)
-  values (new.id, new.id, new.email)
-  on conflict do nothing;
+  insert into profiles (id, email)
+  values (new.id, new.email)
+  on conflict (id) do nothing;
   return new;
 end;
 $$;
 
-drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure handle_new_user();
@@ -34,7 +49,7 @@ create trigger on_auth_user_created
 -- ─────────────────────────────────────────────
 -- SEARCH RUNS
 -- ─────────────────────────────────────────────
-create table if not exists search_runs (
+create table search_runs (
   id               uuid primary key default gen_random_uuid(),
   user_id          uuid not null references auth.users on delete cascade,
   name             text,
@@ -60,7 +75,7 @@ create policy "runs_own" on search_runs for all using (auth.uid() = user_id);
 -- ─────────────────────────────────────────────
 -- SEARCH RUN LOGS
 -- ─────────────────────────────────────────────
-create table if not exists search_run_logs (
+create table search_run_logs (
   id            uuid primary key default gen_random_uuid(),
   run_id        uuid not null references search_runs on delete cascade,
   level         text,
@@ -72,13 +87,15 @@ create table if not exists search_run_logs (
 alter table search_run_logs enable row level security;
 create policy "logs_own" on search_run_logs for all
   using (exists (
-    select 1 from search_runs where id = run_id and user_id = auth.uid()
+    select 1 from search_runs sr
+    where sr.id = search_run_logs.run_id
+      and sr.user_id = auth.uid()
   ));
 
 -- ─────────────────────────────────────────────
 -- RAW SOURCES
 -- ─────────────────────────────────────────────
-create table if not exists raw_sources (
+create table raw_sources (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references auth.users on delete cascade,
   run_id      uuid references search_runs on delete cascade,
@@ -98,7 +115,7 @@ create policy "raw_sources_own" on raw_sources for all using (auth.uid() = user_
 -- ─────────────────────────────────────────────
 -- LEADS
 -- ─────────────────────────────────────────────
-create table if not exists leads (
+create table leads (
   id                uuid primary key default gen_random_uuid(),
   user_id           uuid not null references auth.users on delete cascade,
   primary_name      text,
@@ -137,16 +154,15 @@ create table if not exists leads (
 alter table leads enable row level security;
 create policy "leads_own" on leads for all using (auth.uid() = user_id);
 
--- index for fast filtering
-create index if not exists leads_user_id_idx on leads(user_id);
-create index if not exists leads_run_id_idx on leads(run_id);
-create index if not exists leads_score_idx on leads(score desc);
-create index if not exists leads_domain_idx on leads(domain);
+create index leads_user_id_idx on leads(user_id);
+create index leads_run_id_idx  on leads(run_id);
+create index leads_score_idx   on leads(score desc);
+create index leads_domain_idx  on leads(domain);
 
 -- ─────────────────────────────────────────────
 -- LEAD SOURCES
 -- ─────────────────────────────────────────────
-create table if not exists lead_sources (
+create table lead_sources (
   id            uuid primary key default gen_random_uuid(),
   lead_id       uuid not null references leads on delete cascade,
   run_id        uuid references search_runs on delete set null,
@@ -163,13 +179,15 @@ create table if not exists lead_sources (
 alter table lead_sources enable row level security;
 create policy "lead_sources_own" on lead_sources for all
   using (exists (
-    select 1 from leads where id = lead_id and user_id = auth.uid()
+    select 1 from leads l
+    where l.id = lead_sources.lead_id
+      and l.user_id = auth.uid()
   ));
 
 -- ─────────────────────────────────────────────
 -- LEAD CONTACTS
 -- ─────────────────────────────────────────────
-create table if not exists lead_contacts (
+create table lead_contacts (
   id                  uuid primary key default gen_random_uuid(),
   lead_id             uuid not null references leads on delete cascade,
   contact_type        text,
@@ -186,13 +204,15 @@ create table if not exists lead_contacts (
 alter table lead_contacts enable row level security;
 create policy "lead_contacts_own" on lead_contacts for all
   using (exists (
-    select 1 from leads where id = lead_id and user_id = auth.uid()
+    select 1 from leads l
+    where l.id = lead_contacts.lead_id
+      and l.user_id = auth.uid()
   ));
 
 -- ─────────────────────────────────────────────
 -- LEAD SIGNALS
 -- ─────────────────────────────────────────────
-create table if not exists lead_signals (
+create table lead_signals (
   id           uuid primary key default gen_random_uuid(),
   lead_id      uuid not null references leads on delete cascade,
   signal_type  text,
@@ -205,13 +225,15 @@ create table if not exists lead_signals (
 alter table lead_signals enable row level security;
 create policy "lead_signals_own" on lead_signals for all
   using (exists (
-    select 1 from leads where id = lead_id and user_id = auth.uid()
+    select 1 from leads l
+    where l.id = lead_signals.lead_id
+      and l.user_id = auth.uid()
   ));
 
 -- ─────────────────────────────────────────────
 -- LEAD ENRICHMENT EVENTS
 -- ─────────────────────────────────────────────
-create table if not exists lead_enrichment_events (
+create table lead_enrichment_events (
   id            uuid primary key default gen_random_uuid(),
   lead_id       uuid not null references leads on delete cascade,
   provider      text not null,
@@ -225,13 +247,15 @@ create table if not exists lead_enrichment_events (
 alter table lead_enrichment_events enable row level security;
 create policy "enrichment_events_own" on lead_enrichment_events for all
   using (exists (
-    select 1 from leads where id = lead_id and user_id = auth.uid()
+    select 1 from leads l
+    where l.id = lead_enrichment_events.lead_id
+      and l.user_id = auth.uid()
   ));
 
 -- ─────────────────────────────────────────────
 -- PROVIDER SETTINGS
 -- ─────────────────────────────────────────────
-create table if not exists provider_settings (
+create table provider_settings (
   id                    uuid primary key default gen_random_uuid(),
   user_id               uuid not null references auth.users on delete cascade,
   provider_name         text not null,
@@ -241,7 +265,7 @@ create table if not exists provider_settings (
   config_json           jsonb,
   created_at            timestamptz default now(),
   updated_at            timestamptz default now(),
-  unique(user_id, provider_name)
+  unique (user_id, provider_name)
 );
 
 alter table provider_settings enable row level security;
@@ -250,7 +274,7 @@ create policy "provider_settings_own" on provider_settings for all using (auth.u
 -- ─────────────────────────────────────────────
 -- EXPORTS
 -- ─────────────────────────────────────────────
-create table if not exists exports (
+create table exports (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references auth.users on delete cascade,
   run_id      uuid references search_runs on delete set null,

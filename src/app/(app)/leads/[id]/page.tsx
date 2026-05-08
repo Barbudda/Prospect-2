@@ -116,6 +116,8 @@ export default function LeadDetailPage() {
   const [outreachStatus, setOutreachStatus] = useState<OutreachStatus>("not_contacted");
   const [saving, setSaving] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
+  const [generatingOutreach, setGeneratingOutreach] = useState(false);
+  const [outreachEmail, setOutreachEmail] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`/api/leads/${id}`)
@@ -124,9 +126,26 @@ export default function LeadDetailPage() {
         setLead(d);
         setNotes(d.notes ?? "");
         setOutreachStatus(d.outreach_status ?? "not_contacted");
+        if (d.outreach_email) setOutreachEmail(d.outreach_email);
       })
       .catch(() => toast.error("Failed to load lead"));
   }, [id]);
+
+  async function generateOutreach() {
+    setGeneratingOutreach(true);
+    try {
+      const res = await fetch(`/api/leads/${id}/outreach`, { method: "POST" });
+      const body = await res.text();
+      let data: { email?: string; error?: string } = {};
+      try { data = JSON.parse(body); } catch { /* non-json */ }
+      if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`);
+      if (data.email) setOutreachEmail(data.email);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate outreach");
+    } finally {
+      setGeneratingOutreach(false);
+    }
+  }
 
   async function saveChanges() {
     setSaving(true);
@@ -284,6 +303,57 @@ export default function LeadDetailPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* AI Outreach Writer */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+              AI Outreach Email
+            </CardTitle>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={generateOutreach}
+              disabled={generatingOutreach}
+            >
+              {generatingOutreach
+                ? "Generating..."
+                : outreachEmail
+                ? "Regenerate"
+                : "Generate with AI"}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {outreachEmail ? (
+            <div className="space-y-3">
+              <pre className="whitespace-pre-wrap text-sm leading-relaxed rounded-lg bg-muted/40 p-4 font-sans">
+                {outreachEmail}
+              </pre>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  navigator.clipboard.writeText(outreachEmail);
+                  toast.success("Copied to clipboard!");
+                }}
+              >
+                Copy email
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Click &ldquo;Generate with AI&rdquo; to create a personalized outreach email based on this lead&apos;s website and profile.
+              {!process.env.NEXT_PUBLIC_HAS_ANTHROPIC && (
+                <span className="block mt-1 text-amber-600 dark:text-amber-400 text-xs">
+                  Requires ANTHROPIC_API_KEY in .env.local
+                </span>
+              )}
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Outreach */}
       <Card>

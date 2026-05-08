@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,9 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { AlertTriangle } from "lucide-react";
+import { Search, AlertTriangle, Zap, Globe, Mail, Building2, ChevronDown } from "lucide-react";
 
 interface ProviderStatus {
   name: string;
@@ -51,6 +49,8 @@ export default function DashboardPage() {
       p.status === "configured"
   );
 
+  const configuredProviders = providers.filter((p) => p.status === "configured");
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!city.trim()) {
@@ -77,16 +77,19 @@ export default function DashboardPage() {
         }),
       });
 
+      const createBody = await createRes.text();
+      let createData: { run_id?: string; error?: string } = {};
+      try { createData = JSON.parse(createBody); } catch { /* non-JSON error page */ }
+
       if (!createRes.ok) {
-        const err = await createRes.json();
-        throw new Error(err.error ?? "Failed to create run");
+        throw new Error(createData.error ?? `Server error ${createRes.status}`);
       }
+      if (!createData.run_id) {
+        throw new Error("Server returned no run ID");
+      }
+      const run_id = createData.run_id;
 
-      const { run_id } = await createRes.json();
-
-      // Start the run
       fetch(`/api/runs/${run_id}/start`, { method: "POST" }).catch(() => {});
-
       router.push(`/runs/${run_id}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to start search");
@@ -95,168 +98,202 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Find Airbnb Leads</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Enter a city to automatically discover contactable Airbnb-related B2B prospects.
+    <div className="max-w-2xl mx-auto">
+      {/* Hero */}
+      <div className="text-center pt-8 pb-10">
+        <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary mb-5">
+          <Zap className="h-3 w-3" />
+          Automated B2B Lead Discovery
+        </div>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground mb-2">
+          Find Airbnb Leads
+        </h1>
+        <p className="text-muted-foreground text-sm max-w-md mx-auto leading-relaxed">
+          Automatically discover contactable Airbnb-related B2B prospects — concierges, property managers, and vacation rental agencies.
         </p>
+
+        {/* Active providers strip */}
+        {configuredProviders.length > 0 && (
+          <div className="flex items-center justify-center gap-2 mt-4 flex-wrap">
+            {configuredProviders.slice(0, 4).map((p) => (
+              <span
+                key={p.name}
+                className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                {p.name}
+              </span>
+            ))}
+            {configuredProviders.length > 4 && (
+              <span className="text-xs text-muted-foreground">
+                +{configuredProviders.length - 4} more
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Compliance notice */}
-      <div className="rounded-lg border bg-muted/40 px-4 py-3 text-xs text-muted-foreground leading-relaxed">
-        <strong>Compliance Notice:</strong> This tool collects only publicly available business
-        information for professional B2B outreach purposes. All leads are sourced from public web
-        pages, business directories, and official APIs. Use responsibly and in accordance with
-        applicable data protection regulations (GDPR, CCPA, etc.).
-      </div>
-
-      {/* No provider warning */}
+      {/* Warning: no provider */}
       {!hasSearchProvider && providers.length > 0 && (
-        <div className="flex items-start gap-3 rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20 dark:border-yellow-900 px-4 py-3">
-          <AlertTriangle className="h-4 w-4 text-yellow-600 mt-0.5 shrink-0" />
-          <p className="text-sm text-yellow-800 dark:text-yellow-200">
-            No search provider configured. Add at least one provider in{" "}
-            <a href="/settings" className="underline font-medium">
-              Settings
-            </a>{" "}
-            to run automated lead discovery.
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800/40 px-4 py-3 mb-5">
+          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+          <p className="text-sm text-amber-800 dark:text-amber-200 leading-snug">
+            No search provider configured.{" "}
+            <a href="/settings" className="font-semibold underline underline-offset-2">
+              Add one in Settings →
+            </a>
           </p>
         </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Search Parameters</CardTitle>
-          <CardDescription>Define your target market and lead count</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="city">City / Area *</Label>
+      {/* Main form card */}
+      <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+        {/* Card header strip */}
+        <div className="px-6 pt-5 pb-4 border-b border-border/60">
+          <h2 className="font-semibold text-sm text-foreground">Search Parameters</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Define your target market and lead count</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
+          {/* City / Country row */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="city" className="text-xs font-medium">
+                City / Area <span className="text-destructive">*</span>
+              </Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                 <Input
                   id="city"
                   placeholder="e.g. Biarritz"
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
                   required
+                  className="pl-8"
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="country">Country *</Label>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="country" className="text-xs font-medium">
+                Country <span className="text-destructive">*</span>
+              </Label>
+              <div className="relative">
+                <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                 <Input
                   id="country"
                   placeholder="e.g. France"
                   value={country}
                   onChange={(e) => setCountry(e.target.value)}
                   required
+                  className="pl-8"
                 />
               </div>
             </div>
+          </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="targetType">Target Type</Label>
-                <Select value={targetType} onValueChange={(v: string | null) => { if (v) setTargetType(v); }}>
-                  <SelectTrigger id="targetType">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Airbnb-related</SelectItem>
-                    <SelectItem value="concierges">Concierge Services</SelectItem>
-                    <SelectItem value="property_managers">Property Managers</SelectItem>
-                    <SelectItem value="direct_owners">Direct Booking Owners</SelectItem>
-                    <SelectItem value="agencies">Vacation Rental Agencies</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="requestedLeads">Number of Leads</Label>
-                <Select value={requestedLeads} onValueChange={(v: string | null) => { if (v) setRequestedLeads(v); }}>
-                  <SelectTrigger id="requestedLeads">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="25">25 leads</SelectItem>
-                    <SelectItem value="50">50 leads</SelectItem>
-                    <SelectItem value="100">100 leads</SelectItem>
-                    <SelectItem value="250">250 leads</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+          {/* Type / Count row */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium flex items-center gap-1.5">
+                <Building2 className="h-3 w-3" /> Target Type
+              </Label>
+              <Select value={targetType} onValueChange={(v: string | null) => { if (v) setTargetType(v); }}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Airbnb-related</SelectItem>
+                  <SelectItem value="concierges">Concierge Services</SelectItem>
+                  <SelectItem value="property_managers">Property Managers</SelectItem>
+                  <SelectItem value="direct_owners">Direct Booking Owners</SelectItem>
+                  <SelectItem value="agencies">Vacation Rental Agencies</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-
-            {/* Advanced sources */}
-            <div>
-              <button
-                type="button"
-                onClick={() => setShowAdvanced(!showAdvanced)}
-                className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1"
-              >
-                <span>{showAdvanced ? "▾" : "▸"}</span> Advanced Sources
-              </button>
-
-              {showAdvanced && (
-                <div className="mt-3 space-y-2 pl-4 border-l">
-                  {[
-                    { id: "local", label: "Local Business Search", value: enableLocalBusiness, set: setEnableLocalBusiness },
-                    { id: "web", label: "Web Search Discovery", value: enableWebSearch, set: setEnableWebSearch },
-                    { id: "extraction", label: "Website Contact Extraction", value: enableExtraction, set: setEnableExtraction },
-                    { id: "enrichment", label: "Enrichment APIs (if configured)", value: enableEnrichment, set: setEnableEnrichment },
-                  ].map((item) => (
-                    <div key={item.id} className="flex items-center gap-2">
-                      <Checkbox
-                        id={item.id}
-                        checked={item.value}
-                        onCheckedChange={(v) => item.set(Boolean(v))}
-                      />
-                      <label htmlFor={item.id} className="text-sm cursor-pointer">
-                        {item.label}
-                      </label>
-                    </div>
-                  ))}
-                  <p className="text-xs text-muted-foreground mt-2">
-                    External STR Provider: Not configured. Add credentials in Settings.
-                  </p>
-                </div>
-              )}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium flex items-center gap-1.5">
+                <Mail className="h-3 w-3" /> Number of Leads
+              </Label>
+              <Select value={requestedLeads} onValueChange={(v: string | null) => { if (v) setRequestedLeads(v); }}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="25">25 leads</SelectItem>
+                  <SelectItem value="50">50 leads</SelectItem>
+                  <SelectItem value="100">100 leads</SelectItem>
+                  <SelectItem value="250">250 leads</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+          </div>
 
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Starting search..." : "Find Leads"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      {/* Provider status summary */}
-      {providers.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Active Providers</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {providers
-                .filter((p) => p.status === "configured")
-                .map((p) => (
-                  <Badge key={p.name} variant="secondary" className="text-xs">
-                    {p.name}
-                  </Badge>
+          {/* Advanced sources */}
+          <div className="rounded-xl border border-border/60 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            >
+              <span>Advanced Sources</span>
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
+              />
+            </button>
+            {showAdvanced && (
+              <div className="border-t border-border/60 px-4 py-3 bg-muted/20 grid grid-cols-2 gap-2.5">
+                {[
+                  { id: "local", label: "Local Business Search", value: enableLocalBusiness, set: setEnableLocalBusiness },
+                  { id: "web", label: "Web Search Discovery", value: enableWebSearch, set: setEnableWebSearch },
+                  { id: "extraction", label: "Website Contact Extraction", value: enableExtraction, set: setEnableExtraction },
+                  { id: "enrichment", label: "Enrichment APIs", value: enableEnrichment, set: setEnableEnrichment },
+                ].map((item) => (
+                  <div key={item.id} className="flex items-center gap-2">
+                    <Checkbox
+                      id={item.id}
+                      checked={item.value}
+                      onCheckedChange={(v) => item.set(Boolean(v))}
+                      className="h-3.5 w-3.5"
+                    />
+                    <label htmlFor={item.id} className="text-xs text-muted-foreground cursor-pointer select-none">
+                      {item.label}
+                    </label>
+                  </div>
                 ))}
-              {!hasSearchProvider && (
-                <span className="text-xs text-muted-foreground">
-                  No providers active.{" "}
-                  <a href="/settings" className="underline">
-                    Configure one →
-                  </a>
-                </span>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+              </div>
+            )}
+          </div>
+
+          {/* Submit */}
+          <Button
+            type="submit"
+            className="w-full h-10 font-semibold text-sm shadow-sm bg-primary hover:bg-primary/90 transition-all"
+            disabled={loading}
+          >
+            {loading ? (
+              <span className="flex items-center gap-2">
+                <span className="h-3.5 w-3.5 rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground animate-spin" />
+                Starting search...
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                <Search className="h-3.5 w-3.5" />
+                Find Leads
+              </span>
+            )}
+          </Button>
+        </form>
+
+        {/* Compliance footer */}
+        <div className="px-6 py-3 border-t border-border/60 bg-muted/20">
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            <span className="font-medium">Compliance:</span> Collects only publicly available business information for professional B2B outreach. Use in accordance with GDPR, CCPA, and applicable data protection regulations.
+          </p>
+        </div>
+      </div>
+
+      {/* Bottom padding */}
+      <div className="h-12" />
     </div>
   );
 }

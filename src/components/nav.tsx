@@ -2,18 +2,20 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
+import { Sun, Moon, LogOut, LayoutDashboard, Users, Settings } from "lucide-react";
 
 const NAV_LINKS = [
-  { href: "/", label: "Dashboard" },
-  { href: "/leads", label: "Leads" },
-  { href: "/settings", label: "Settings" },
+  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/leads", label: "Leads", icon: Users },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function Nav() {
   const pathname = usePathname();
   const router = useRouter();
+  const { resolvedTheme, setTheme } = useTheme();
 
   async function signOut() {
     const { createClient } = await import("@/lib/supabase/client");
@@ -24,31 +26,60 @@ export function Nav() {
   }
 
   return (
-    <nav className="border-b bg-background">
+    <nav className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex h-14 items-center justify-between">
-          <div className="flex items-center gap-6">
-            <Link href="/" className="font-semibold text-sm tracking-tight">
-              Prospect
-            </Link>
-            {NAV_LINKS.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={cn(
-                  "text-sm transition-colors hover:text-foreground",
-                  pathname === link.href
-                    ? "text-foreground font-medium"
-                    : "text-muted-foreground"
-                )}
-              >
-                {link.label}
-              </Link>
-            ))}
+        <div className="flex h-14 items-center justify-between gap-6">
+          {/* Logo */}
+          <Link href="/" className="flex items-center gap-2.5 shrink-0">
+            <div className="h-7 w-7 rounded-lg bg-primary flex items-center justify-center shadow-sm">
+              <span className="text-primary-foreground text-xs font-bold tracking-tight">P</span>
+            </div>
+            <span className="font-semibold text-sm tracking-tight">Prospect</span>
+          </Link>
+
+          {/* Nav links */}
+          <div className="flex items-center gap-1">
+            {NAV_LINKS.map(({ href, label, icon: Icon }) => {
+              const active = pathname === href;
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                    active
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </Link>
+              );
+            })}
           </div>
-          <Button variant="ghost" size="sm" onClick={signOut}>
-            Sign out
-          </Button>
+
+          {/* Right actions */}
+          <div className="flex items-center gap-1 ml-auto">
+            <button
+              onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+              className="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              aria-label="Toggle theme"
+            >
+              {resolvedTheme === "dark" ? (
+                <Sun className="h-4 w-4" />
+              ) : (
+                <Moon className="h-4 w-4" />
+              )}
+            </button>
+            <button
+              onClick={signOut}
+              className="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              aria-label="Sign out"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </div>
     </nav>
