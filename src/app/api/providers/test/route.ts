@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -72,6 +74,23 @@ export async function POST(req: NextRequest) {
         );
         if (!res.ok) {
           return NextResponse.json({ ok: false, error: `Hunter.io returned HTTP ${res.status}` });
+        }
+        return NextResponse.json({ ok: true });
+      }
+
+      case "Claude (Anthropic)": {
+        if (!process.env.ANTHROPIC_API_KEY) {
+          return NextResponse.json({ ok: false, error: "ANTHROPIC_API_KEY not configured" });
+        }
+        const res = await fetch("https://api.anthropic.com/v1/models", {
+          headers: {
+            "x-api-key": process.env.ANTHROPIC_API_KEY!,
+            "anthropic-version": "2023-06-01",
+          },
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) {
+          return NextResponse.json({ ok: false, error: `Anthropic returned HTTP ${res.status} — check your API key` });
         }
         return NextResponse.json({ ok: true });
       }
