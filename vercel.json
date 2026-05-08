@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "src/app/api/runs/[id]/start/route.ts": {
+      "maxDuration": 300
+    }
+  }
+}

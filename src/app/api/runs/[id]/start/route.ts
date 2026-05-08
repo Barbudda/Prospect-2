@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { runSearchOrchestrator } from "@/lib/engines/orchestrator";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 export async function POST(
   req: NextRequest,
@@ -29,19 +30,21 @@ export async function POST(
       return NextResponse.json({ error: "Run is not in queued state" }, { status: 409 });
     }
 
-    runSearchOrchestrator(
-      runId,
-      user.id,
-      run.city,
-      run.country,
-      run.target_type ?? "all",
-      {
-        maxLeadsReturned: run.requested_leads ?? 50,
-        ...(run.config_json ?? {}),
-      }
-    ).catch((err) => {
-      console.error(`Run ${runId} failed:`, err);
-    });
+    after(
+      runSearchOrchestrator(
+        runId,
+        user.id,
+        run.city,
+        run.country,
+        run.target_type ?? "all",
+        {
+          maxLeadsReturned: run.requested_leads ?? 50,
+          ...(run.config_json ?? {}),
+        }
+      ).catch((err) => {
+        console.error(`Run ${runId} failed:`, err);
+      })
+    );
 
     return NextResponse.json({ started: true, run_id: runId });
   } catch (err) {
