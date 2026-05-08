@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { Download } from "lucide-react";
+import { Download, ChevronLeft, MapPin } from "lucide-react";
 import type { RunStatus, RunStats, LogLevel } from "@/lib/types";
 
 interface LogEntry {
@@ -19,6 +19,9 @@ interface LogEntry {
 
 interface StatusData {
   id: string;
+  city?: string;
+  country?: string;
+  target_type?: string;
   status: RunStatus;
   progress: number;
   stats: RunStats;
@@ -120,14 +123,30 @@ export default function RunProgressPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Search Run</h1>
-          <p className="text-sm text-muted-foreground font-mono">{runId}</p>
+      {/* Breadcrumb + header */}
+      <div>
+        <Link href="/runs" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-3 transition-colors">
+          <ChevronLeft className="h-3.5 w-3.5" />
+          All runs
+        </Link>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
+              {data.city ? (
+                <>
+                  <MapPin className="h-4 w-4 text-muted-foreground" />
+                  {data.city}, {data.country}
+                </>
+              ) : (
+                "Search Run"
+              )}
+            </h1>
+            <p className="text-xs text-muted-foreground font-mono mt-0.5">{runId}</p>
+          </div>
+          <Badge variant={STATUS_COLORS[data.status] as "default" | "secondary" | "destructive"}>
+            {STATUS_LABELS[data.status]}
+          </Badge>
         </div>
-        <Badge variant={STATUS_COLORS[data.status] as "default" | "secondary" | "destructive"}>
-          {STATUS_LABELS[data.status]}
-        </Badge>
       </div>
 
       {/* Progress */}

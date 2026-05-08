@@ -161,20 +161,18 @@ export default function SettingsPage() {
 
       {!hasAnyConfigured && providers.length > 0 && (
         <div className="rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20 px-4 py-3 text-sm text-yellow-800 dark:text-yellow-200">
-          No providers configured. Add at least one search provider API key to your{" "}
-          <code className="font-mono text-xs bg-yellow-100 dark:bg-yellow-900 px-1 py-0.5 rounded">
-            .env.local
-          </code>{" "}
-          file, then restart the development server.
+          No providers configured. Add at least one search or local business API key using the instructions below.
         </div>
       )}
 
-      <div className="rounded-lg border bg-muted/30 px-4 py-3 text-xs text-muted-foreground leading-relaxed">
-        <strong>Setup:</strong> All API keys are configured via environment variables in{" "}
-        <code className="font-mono">.env.local</code>. Copy{" "}
-        <code className="font-mono">.env.local.example</code> to{" "}
-        <code className="font-mono">.env.local</code> and fill in your keys, then restart the
-        server. Keys are never stored in the database and are never exposed to the browser.
+      <div className="rounded-lg border bg-muted/30 px-4 py-3 text-xs text-muted-foreground leading-relaxed space-y-1">
+        <p>
+          <strong>Local:</strong> Set keys in <code className="font-mono">.env.local</code> and restart the dev server.
+        </p>
+        <p>
+          <strong>Vercel:</strong> Add keys via <code className="font-mono">vercel env add KEY production</code> or in your Vercel project settings under Environment Variables, then redeploy.
+        </p>
+        <p>Keys are never stored in the database or exposed to the browser.</p>
       </div>
 
       <Tabs defaultValue="search">

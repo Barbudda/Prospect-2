@@ -39,6 +39,9 @@ export async function GET(
 
   return NextResponse.json({
     id: run.id,
+    city: run.city,
+    country: run.country,
+    target_type: run.target_type,
     status: run.status,
     progress: run.progress ?? 0,
     stats: run.stats_json ?? {
