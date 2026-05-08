@@ -30,6 +30,17 @@ export async function POST(
       return NextResponse.json({ error: "Run is not in queued state" }, { status: 409 });
     }
 
+    const requestedLeads = run.requested_leads ?? 50;
+    // Scale search depth with requested lead count
+    const maxSearchQueries = requestedLeads <= 25 ? 8
+      : requestedLeads <= 50 ? 12
+      : requestedLeads <= 100 ? 16
+      : 20;
+    const maxWebsitesToCrawl = requestedLeads <= 25 ? 20
+      : requestedLeads <= 50 ? 40
+      : requestedLeads <= 100 ? 60
+      : 80;
+
     after(
       runSearchOrchestrator(
         runId,
@@ -38,7 +49,9 @@ export async function POST(
         run.country,
         run.target_type ?? "all",
         {
-          maxLeadsReturned: run.requested_leads ?? 50,
+          maxLeadsReturned: requestedLeads,
+          maxSearchQueries,
+          maxWebsitesToCrawl,
           ...(run.config_json ?? {}),
         }
       ).catch((err) => {

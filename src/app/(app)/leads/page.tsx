@@ -41,6 +41,7 @@ interface Lead {
   score: number;
   score_label: ScoreLabel;
   outreach_status: OutreachStatus;
+  outreach_email: string | null;
   run_id: string | null;
 }
 
@@ -319,6 +320,7 @@ export default function LeadsPage() {
                 <TableHead>City</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Phone</TableHead>
+                <TableHead className="w-8" title="AI email generated">AI</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="w-16">Actions</TableHead>
               </TableRow>
@@ -367,6 +369,13 @@ export default function LeadsPage() {
                       </a>
                     ) : (
                       <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {lead.outreach_email ? (
+                      <span title="AI outreach email generated" className="text-xs text-emerald-600 font-medium">✓</span>
+                    ) : (
+                      <span className="text-muted-foreground/40 text-xs">—</span>
                     )}
                   </TableCell>
                   <TableCell>

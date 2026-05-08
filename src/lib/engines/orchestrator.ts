@@ -14,6 +14,7 @@ import { deduplicateLeads } from "./deduplicator";
 import { generateOutreachAngle } from "./outreach";
 import { SerpAPISearchProvider } from "@/lib/providers/serpapi-search";
 import { BraveSearchProvider } from "@/lib/providers/brave-search";
+import { TavilySearchProvider } from "@/lib/providers/tavily-search";
 import { GooglePlacesProvider } from "@/lib/providers/google-places";
 import { SerpAPIMapsProvider } from "@/lib/providers/serpapi-maps";
 import { HunterProvider } from "@/lib/providers/hunter";
@@ -24,7 +25,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 
 // ─── Provider registries ──────────────────────────────────────────────────
 
-const SEARCH_PROVIDERS = [new SerpAPISearchProvider(), new BraveSearchProvider()];
+const SEARCH_PROVIDERS = [new SerpAPISearchProvider(), new BraveSearchProvider(), new TavilySearchProvider()];
 const LOCAL_PROVIDERS = [new GooglePlacesProvider(), new SerpAPIMapsProvider()];
 const ENRICHMENT_PROVIDERS = [new HunterProvider(), new DropcontactProvider()];
 

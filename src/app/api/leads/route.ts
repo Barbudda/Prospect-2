@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
 
     let query = supabase
       .from("leads")
-      .select("id, primary_name, lead_type, city, country, email, phone, website_url, source_url, score, score_label, outreach_status, run_id", { count: "exact" })
+      .select("id, primary_name, lead_type, city, country, email, phone, website_url, source_url, score, score_label, outreach_status, outreach_email, run_id", { count: "exact" })
       .eq("user_id", user.id)
       .neq("status", "draft")
       .order("score", { ascending: false })
