@@ -249,11 +249,24 @@ export default function LeadsPage() {
 
       {/* Table */}
       {leads.length === 0 && !loading ? (
-        <div className="rounded-lg border bg-muted/30 px-6 py-12 text-center">
-          <p className="text-muted-foreground">
-            No real leads found for this search. Try adjusting the city, adding more source
-            providers, or expanding the search area.
+        <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-8 py-14 text-center">
+          <p className="text-sm font-medium text-foreground">No leads found</p>
+          <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
+            {runFilter
+              ? "This search returned no contactable leads. Try a larger city or adding more source providers."
+              : search
+              ? `No leads matching "${search}". Try a different name or email.`
+              : "Start a search from the dashboard to generate leads."}
           </p>
+          {!runFilter && !search && (
+            <Link href="/" className="inline-flex items-center gap-1.5 mt-4 rounded-lg h-8 px-3 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
+              Go to Dashboard
+            </Link>
+          )}
+        </div>
+      ) : loading && leads.length === 0 ? (
+        <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
+          Loading leads...
         </div>
       ) : (
         <div className="rounded-md border">

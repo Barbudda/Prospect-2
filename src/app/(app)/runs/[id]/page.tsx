@@ -187,11 +187,19 @@ export default function RunProgressPage() {
       )}
 
       {/* Actions */}
-      <div className="flex gap-3">
+      <div className="flex gap-3 flex-wrap">
         {!isDone && (
           <Button variant="outline" size="sm" onClick={handleCancel} disabled={cancelling}>
             {cancelling ? "Cancelling..." : "Cancel Run"}
           </Button>
+        )}
+        {data.status === "failed" && (
+          <Link
+            href="/"
+            className="inline-flex items-center justify-center rounded-lg h-7 px-2.5 text-[0.8rem] font-medium border border-border hover:bg-muted transition-colors"
+          >
+            New Search
+          </Link>
         )}
         {(data.status === "completed" || data.lead_count > 0) && (
           <>
