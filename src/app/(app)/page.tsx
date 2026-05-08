@@ -48,11 +48,16 @@ export default function DashboardPage() {
   const [enableEnrichment, setEnableEnrichment] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [recentRuns, setRecentRuns] = useState<RecentRun[]>([]);
+  const [stats, setStats] = useState({ total_leads: 0, completed_runs: 0, leads_with_email: 0 });
 
   useEffect(() => {
     fetch("/api/providers/status")
       .then((r) => r.json())
       .then((d) => setProviders(d.providers ?? []))
+      .catch(() => {});
+    fetch("/api/stats")
+      .then((r) => r.json())
+      .then((d) => setStats({ total_leads: d.total_leads ?? 0, completed_runs: d.completed_runs ?? 0, leads_with_email: d.leads_with_email ?? 0 }))
       .catch(() => {});
     fetch("/api/runs?limit=5")
       .then((r) => r.json())
@@ -149,6 +154,22 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* Stats cards — only show once user has data */}
+      {stats.total_leads > 0 && (
+        <div className="grid grid-cols-3 gap-3 mb-2">
+          {[
+            { label: "Total Leads", value: stats.total_leads.toLocaleString() },
+            { label: "With Email", value: stats.leads_with_email.toLocaleString() },
+            { label: "Runs Done", value: stats.completed_runs.toLocaleString() },
+          ].map((s) => (
+            <div key={s.label} className="rounded-xl border border-border/60 bg-card px-4 py-3 text-center">
+              <div className="text-2xl font-bold tracking-tight">{s.value}</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Warning: no provider */}
       {!hasSearchProvider && providers.length > 0 && (
