@@ -179,9 +179,25 @@ export default function RunProgressPage() {
         </CardContent>
       </Card>
 
-      {/* Error message */}
+      {/* Success / Error banners */}
+      {data.status === "completed" && data.lead_count > 0 && (
+        <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 dark:border-emerald-800/40 px-4 py-3">
+          <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+          <p className="text-sm text-emerald-800 dark:text-emerald-200 flex-1">
+            Search complete — <strong>{data.lead_count} leads</strong> found and saved.
+          </p>
+        </div>
+      )}
+      {data.status === "completed" && data.lead_count === 0 && (
+        <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800/40 px-4 py-3">
+          <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+          <p className="text-sm text-amber-800 dark:text-amber-200">
+            Search complete but no contactable leads were found. Try a larger city or different target type.
+          </p>
+        </div>
+      )}
       {data.status === "failed" && data.error_message && (
-        <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/20 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+        <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-800/40 px-4 py-3 text-sm text-red-700 dark:text-red-300">
           <strong>Error:</strong> {data.error_message}
         </div>
       )}
