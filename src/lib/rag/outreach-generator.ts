@@ -67,26 +67,37 @@ export async function generateOutreachEmail(lead: LeadContext): Promise<string> 
     ? `\n\nContenu du site web du prospect :\n"""\n${lead.website_content}\n"""`
     : "";
 
-  const prompt = `Tu es un expert en prospection B2B pour le secteur de la location saisonnière (Airbnb, gîtes, conciergeries).
+  const typeContext: Record<string, string> = {
+    "Airbnb Concierge": "conciergerie Airbnb qui gère les check-in/check-out et le ménage pour plusieurs propriétaires",
+    "Property Manager": "gestionnaire de biens qui administre un portefeuille de locations saisonnières",
+    "Direct Booking Owner": "propriétaire qui fait de la réservation directe sur son propre site",
+    "Vacation Rental Agency": "agence spécialisée en location saisonnière",
+    "Gîte / Villa Operator": "opérateur de gîtes ou villas qui accueille des vacanciers",
+    "Co-host / Consultant": "co-hôte ou consultant Airbnb qui accompagne des propriétaires",
+    "Real Estate Seasonal Rental": "agence immobilière positionnée sur la location saisonnière",
+    "Unknown STR Lead": "acteur du secteur location courte durée",
+  };
 
-Rédige un email de prospection court, personnalisé et professionnel en français pour ce prospect :
+  const typeDesc = typeContext[lead.lead_type] ?? typeContext["Unknown STR Lead"];
 
-Nom / Entreprise : ${lead.primary_name}
-Type : ${lead.lead_type}
-Ville : ${lead.city}, ${lead.country}
-Site web : ${lead.website_url ?? "non renseigné"}
-${lead.suggested_angle ? `Angle de prospection suggéré : ${lead.suggested_angle}` : ""}
-${lead.quality_summary ? `Résumé qualité : ${lead.quality_summary}` : ""}${websiteSection}
+  const prompt = `Tu es chargé de la prospection commerciale pour une startup qui vend un assistant IA dédié à l'expérience voyageur pour les locations Airbnb et courtes durées. L'assistant répond automatiquement aux messages des voyageurs 24h/24, réduit les questions répétitives, et améliore les notes et avis.
 
-Règles :
-- Longueur : 5 à 8 lignes maximum
-- Objet d'email inclus au début (format "Objet : ...")
-- Ton professionnel mais humain, pas de formules génériques
-- Mentionner un détail spécifique au prospect (extrait du site ou de sa ville)
-- Proposer une valeur claire (la solution que tu vends : assistant IA guest experience pour Airbnb)
-- Terminer par une question ouverte pour engager la conversation
-- PAS de signature (elle sera ajoutée séparément)
-- PAS de balises markdown, texte brut uniquement`;
+Ton prospect est une ${typeDesc} basée à ${lead.city}${lead.country !== "France" ? `, ${lead.country}` : ""} : ${lead.primary_name}.
+${lead.website_url ? `Site web : ${lead.website_url}` : ""}
+${lead.suggested_angle ? `Angle commercial : ${lead.suggested_angle}` : ""}
+${lead.quality_summary ? `Contexte : ${lead.quality_summary}` : ""}${websiteSection}
+
+Écris un email de prospection en français avec ces contraintes strictes :
+1. OBJET : commence par "Objet : " (une ligne accrocheuse, max 8 mots, spécifique à leur activité)
+2. ACCROCHE : une phrase d'ouverture qui montre que tu connais leur activité spécifique (ne pas commencer par "Je" ni par "Bonjour")
+3. PROBLÈME : une phrase sur la douleur concrète que tu résous pour ce type d'opérateur
+4. SOLUTION : une phrase sur ce que l'assistant IA apporte spécifiquement (pas de marketing générique)
+5. PREUVE / RÉSULTAT : chiffre ou bénéfice concret (ex: "réduire de 80% les questions répétitives", "améliorer la note Airbnb")
+6. APPEL À L'ACTION : une question ouverte et naturelle pour lancer la conversation
+7. PAS de signature
+8. PAS de markdown
+9. Texte brut, max 8 lignes au total
+10. Ton : direct, professionnel, jamais vendeur ou générique — comme un message d'un fondateur à un pair`;
 
   const message = await client.messages.create({
     model: "claude-sonnet-4-6",

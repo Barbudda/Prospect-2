@@ -52,6 +52,16 @@ const SCORE_COLORS: Record<ScoreLabel, string> = {
   Weak: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
 };
 
+const OUTREACH_COLORS: Record<OutreachStatus, string> = {
+  not_contacted: "text-muted-foreground",
+  contacted: "text-blue-600 dark:text-blue-400 font-medium",
+  replied: "text-emerald-600 dark:text-emerald-400 font-semibold",
+  not_interested: "text-gray-400 line-through",
+  converted: "text-emerald-700 dark:text-emerald-300 font-bold",
+  unsubscribed: "text-gray-400",
+  opted_out: "text-gray-400",
+};
+
 export default function LeadsPage() {
   const sp = useSearchParams();
   const router = useRouter();
@@ -404,9 +414,9 @@ export default function LeadsPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline" className="text-xs capitalize">
+                    <span className={`text-xs capitalize ${OUTREACH_COLORS[lead.outreach_status as OutreachStatus] ?? "text-muted-foreground"}`}>
                       {lead.outreach_status?.replace(/_/g, " ")}
-                    </Badge>
+                    </span>
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
