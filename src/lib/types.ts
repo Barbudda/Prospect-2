@@ -236,13 +236,13 @@ export interface RunConfig {
 }
 
 export const DEFAULT_RUN_CONFIG: RunConfig = {
-  maxSearchQueries: 20,
+  maxSearchQueries: 12,
   maxResultsPerQuery: 10,
-  maxWebsitesToCrawl: 100,
-  maxPagesPerWebsite: 8,
-  pageTimeoutMs: 10_000,
+  maxWebsitesToCrawl: 40,
+  maxPagesPerWebsite: 5,
+  pageTimeoutMs: 8_000,
   crawlerConcurrency: 3,
-  searchProviderDelayMs: 1_000,
+  searchProviderDelayMs: 800,
   maxLeadsReturned: 250,
   enableLocalBusiness: true,
   enableWebSearch: true,
