@@ -12,6 +12,8 @@ import { classifyLead } from "./classifier";
 import { scoreLead, scoreOpportunity, scoreScale, scoreIntent, getScoreLabel } from "./scorer";
 import { deduplicateLeads } from "./deduplicator";
 import { generateOutreachAngle } from "./outreach";
+import { runReconstructionEnrichment } from "./intelligence-enrichment";
+import type { LeadWithOgImage } from "./intelligence-enrichment";
 import { SerpAPISearchProvider } from "@/lib/providers/serpapi-search";
 import { BraveSearchProvider } from "@/lib/providers/brave-search";
 import { TavilySearchProvider } from "@/lib/providers/tavily-search";
@@ -248,6 +250,16 @@ async function persistLeads(
         automation_level: lead.automation_level ?? null,
         has_owner_acquisition_page: lead.has_owner_acquisition_page ?? null,
         has_owner_cta: lead.has_owner_cta ?? null,
+        // Reconstruction layer
+        reconstruction_confidence: lead.reconstruction_confidence ?? null,
+        exclusivity_score: lead.exclusivity_score ?? null,
+        reconstructed: lead.reconstructed ?? null,
+        multi_platform: lead.multi_platform ?? null,
+        platform_count: lead.platform_count ?? null,
+        platforms_found: lead.platforms_found ?? null,
+        image_matches: lead.image_matches ? JSON.stringify(lead.image_matches) : null,
+        duplicate_sources: lead.duplicate_sources ? JSON.stringify(lead.duplicate_sources) : null,
+        geo_signals: lead.geo_signals ? JSON.stringify(lead.geo_signals) : null,
       })
       .select("id")
       .single();
@@ -463,6 +475,7 @@ export async function runSearchOrchestrator(
 
     // ══ ENGINE 3: Website Contact Extraction ══════════════════════════════
     await updateRun(supabase, runId, { status: "extracting_contacts", progress: 50 });
+    const ogImageMap = new Map<string, string>(); // website_url → og:image
 
     if (cfg.enableContactExtraction) {
       const websitesToCrawl = allLeads
@@ -542,6 +555,11 @@ export async function runSearchOrchestrator(
                   .join(" ");
               }
 
+              // Store og:image for reconstruction
+              if (contacts.page_og_image && lead.website_url) {
+                ogImageMap.set(lead.website_url, contacts.page_og_image);
+              }
+
               // Compute intelligence sub-scores
               const oppScore = scoreOpportunity({
                 has_booking_engine: contacts.has_booking_engine,
@@ -601,6 +619,33 @@ export async function runSearchOrchestrator(
     }
 
     await updateRun(supabase, runId, { progress: 65 });
+
+    // ══ ENGINE 3.5: Lead Reconstruction ═══════════════════════════════════
+    await updateRun(supabase, runId, { status: "reconstructing", progress: 67 });
+
+    if (process.env.SERPAPI_API_KEY) {
+      const leadsWithImages: LeadWithOgImage[] = allLeads.map((l) => ({
+        lead: l,
+        ogImage: l.website_url ? ogImageMap.get(l.website_url) : undefined,
+      }));
+
+      const reconResults = await runReconstructionEnrichment(leadsWithImages, 15);
+
+      for (let i = 0; i < allLeads.length; i++) {
+        const lead = allLeads[i];
+        const key = lead.website_url ?? lead.primary_name;
+        const recon = reconResults.get(key);
+        if (recon) {
+          allLeads[i] = { ...lead, ...recon };
+        }
+      }
+
+      await log(supabase, runId, "info", `Reconstruction complete: ${reconResults.size} leads enriched.`);
+    } else {
+      await log(supabase, runId, "info", "Reconstruction skipped: SERPAPI_API_KEY not configured.");
+    }
+
+    await updateRun(supabase, runId, { progress: 69 });
 
     // ══ ENGINE 4: Enrichment ══════════════════════════════════════════════
     await updateRun(supabase, runId, { status: "enriching", progress: 70 });

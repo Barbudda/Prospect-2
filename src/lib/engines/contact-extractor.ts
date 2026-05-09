@@ -468,6 +468,7 @@ export async function extractContactsFromWebsite(
   let keywords: string[] = [];
   let propertyCount: number | undefined;
   let contactPageUrl: string | undefined;
+  let ogImage: string | undefined;
   // Intelligence accumulators
   let has_faq = false;
   let has_booking_engine = false;
@@ -503,6 +504,14 @@ export async function extractContactsFromWebsite(
     keywords = [...new Set([...keywords, ...kw])];
     if (!propertyCount && props) propertyCount = props;
 
+    // Capture og:image from the homepage only (first URL = baseUrl)
+    if (!ogImage && url === baseUrl) {
+      const ogMatch =
+        html.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i) ??
+        html.match(/<meta[^>]+content="([^"]+)"[^>]+property="og:image"/i);
+      if (ogMatch?.[1]) ogImage = ogMatch[1].trim();
+    }
+
     const isContactPage =
       url.includes("contact") ||
       url.includes("a-propos") ||
@@ -511,7 +520,7 @@ export async function extractContactsFromWebsite(
       contactPageUrl = url;
     }
 
-    // Intelligence detection — accumulate across all pages
+    // Intelligence signals — accumulate across all pages
     try {
       const maturity = detectDigitalMaturity(html);
       if (maturity.has_faq) has_faq = true;
@@ -577,6 +586,8 @@ export async function extractContactsFromWebsite(
     has_owner_cta,
     has_team,
     cities_served: cities_detected.length > 0 ? cities_detected : undefined,
+    // Reconstruction
+    page_og_image: ogImage,
   };
 
   return contacts;

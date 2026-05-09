@@ -59,6 +59,15 @@ interface LeadDetail {
   automation_level?: "low" | "medium" | "high" | null;
   has_owner_acquisition_page?: boolean | null;
   has_owner_cta?: boolean | null;
+  // Reconstruction layer
+  reconstruction_confidence?: number | null;
+  exclusivity_score?: number | null;
+  reconstructed?: boolean | null;
+  multi_platform?: boolean | null;
+  platform_count?: number | null;
+  platforms_found?: string[] | null;
+  image_matches?: Array<{ url: string; title: string; thumbnail?: string }> | null;
+  duplicate_sources?: Array<{ url: string; platform: string }> | null;
   sources: Array<{
     id: string;
     provider: string;
@@ -216,13 +225,18 @@ export default function LeadDetailPage() {
         </Link>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-2xl font-bold">{lead.primary_name}</h1>
               <span
                 className={`rounded px-2 py-0.5 text-xs font-bold ${SCORE_COLORS[lead.score_label]}`}
               >
                 {lead.score} — {lead.score_label}
               </span>
+              {lead.exclusivity_score != null && lead.exclusivity_score >= 70 && lead.opportunity_score != null && lead.opportunity_score >= 60 && (
+                <span className="rounded px-2 py-0.5 text-xs font-bold bg-amber-100 text-amber-700 border border-amber-300">
+                  Hidden Lead
+                </span>
+              )}
             </div>
             <p className="text-sm text-muted-foreground mt-1">
               {lead.lead_type} · {lead.city}, {lead.country}
@@ -351,6 +365,84 @@ export default function LeadDetailPage() {
               <div>
                 <p className="text-xs font-medium text-muted-foreground mb-1 uppercase tracking-wide">Estimated Properties</p>
                 <p className="text-sm font-medium">{lead.estimated_property_count} properties</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Reconstruction Insights */}
+      {(lead.reconstruction_confidence != null || lead.exclusivity_score != null) && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+              Reconstruction Insights
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {lead.reconstruction_confidence != null && (
+              <ScoreBar
+                label="Reconstruction Confidence"
+                score={lead.reconstruction_confidence}
+                description="How verified this lead is across multiple sources — higher when found on OTA platforms or via image matching."
+                color={lead.reconstruction_confidence >= 70 ? "text-blue-600" : lead.reconstruction_confidence >= 40 ? "text-blue-400" : "text-gray-500"}
+              />
+            )}
+            {lead.exclusivity_score != null && (
+              <ScoreBar
+                label="Exclusivity Score"
+                score={lead.exclusivity_score}
+                description="How hard this lead is for competitors to find — high when they're not widely listed on OTA platforms."
+                color={lead.exclusivity_score >= 70 ? "text-amber-600" : lead.exclusivity_score >= 40 ? "text-amber-400" : "text-gray-500"}
+              />
+            )}
+
+            {lead.platforms_found && lead.platforms_found.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
+                  Found on {lead.platform_count} Platform{(lead.platform_count ?? 0) !== 1 ? "s" : ""}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {lead.platforms_found.map((p) => (
+                    <span key={p} className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                      {p}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {lead.duplicate_sources && lead.duplicate_sources.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Platform Listings</p>
+                <div className="space-y-1">
+                  {lead.duplicate_sources.map((src, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      <span className="text-muted-foreground w-24 shrink-0">{src.platform}</span>
+                      <a href={src.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline truncate">
+                        {src.url}
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {lead.image_matches && lead.image_matches.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Image Matches</p>
+                <div className="space-y-1">
+                  {lead.image_matches.map((m, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      {m.thumbnail && (
+                        <img src={m.thumbnail} alt="" className="w-8 h-8 object-cover rounded shrink-0" />
+                      )}
+                      <a href={m.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline truncate">
+                        {m.title}
+                      </a>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </CardContent>

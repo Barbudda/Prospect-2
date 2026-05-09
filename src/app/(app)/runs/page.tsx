@@ -34,6 +34,7 @@ const STATUS_BADGE: Record<RunStatus, { label: string; variant: "default" | "sec
   running: { label: "Running", variant: "default" },
   collecting_sources: { label: "Collecting", variant: "default" },
   extracting_contacts: { label: "Extracting", variant: "default" },
+  reconstructing: { label: "Reconstructing", variant: "default" },
   enriching: { label: "Enriching", variant: "default" },
   deduplicating: { label: "Deduplicating", variant: "default" },
   scoring: { label: "Scoring", variant: "default" },

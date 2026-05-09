@@ -15,6 +15,7 @@ export type RunStatus =
   | "running"
   | "collecting_sources"
   | "extracting_contacts"
+  | "reconstructing"
   | "enriching"
   | "deduplicating"
   | "scoring"
@@ -135,6 +136,8 @@ export interface ExtractedContacts {
   has_owner_acquisition_page?: boolean;
   has_owner_cta?: boolean;
   has_team?: boolean;
+  // Reconstruction layer — og:image captured for reverse image search
+  page_og_image?: string;
 }
 
 // ─── Enrichment ─────────────────────────────────────────────────────────────
@@ -237,6 +240,16 @@ export interface NormalizedLead {
   automation_level?: "low" | "medium" | "high";
   has_owner_acquisition_page?: boolean;
   has_owner_cta?: boolean;
+  // Reconstruction layer scores
+  reconstruction_confidence?: number;
+  exclusivity_score?: number;
+  reconstructed?: boolean;
+  multi_platform?: boolean;
+  platform_count?: number;
+  platforms_found?: string[];
+  image_matches?: Array<{ url: string; title: string; thumbnail?: string }>;
+  duplicate_sources?: Array<{ url: string; platform: string }>;
+  geo_signals?: Record<string, unknown>;
 }
 
 // ─── Run config ─────────────────────────────────────────────────────────────

@@ -24,21 +24,32 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(parseInt(sp.get("limit") ?? "50", 10), 200);
     const offset = (page - 1) * limit;
 
-    const orderMap: Record<string, { column: string; ascending: boolean; nullsFirst?: boolean }> = {
-      score_desc: { column: "score", ascending: false },
-      score_asc: { column: "score", ascending: true },
-      newest: { column: "created_at", ascending: false },
-      email_first: { column: "email", ascending: false, nullsFirst: false },
-    };
-    const { column: orderCol, ascending: orderAsc } = orderMap[sort] ?? orderMap.score_desc;
+    const isHiddenSort = sort === "hidden_potential";
 
     let query = supabase
       .from("leads")
-      .select("id, primary_name, lead_type, city, country, email, phone, website_url, source_url, score, score_label, outreach_status, outreach_email, run_id", { count: "exact" })
+      .select(
+        "id, primary_name, lead_type, city, country, email, phone, website_url, source_url, score, score_label, outreach_status, outreach_email, run_id, exclusivity_score, reconstruction_confidence, reconstructed, platforms_found, platform_count",
+        { count: "exact" }
+      )
       .eq("user_id", user.id)
       .neq("status", "draft")
-      .order(orderCol, { ascending: orderAsc })
       .range(offset, offset + limit - 1);
+
+    if (isHiddenSort) {
+      query = query
+        .order("exclusivity_score", { ascending: false, nullsFirst: false })
+        .order("opportunity_score", { ascending: false, nullsFirst: false });
+    } else {
+      const orderMap: Record<string, { column: string; ascending: boolean; nullsFirst?: boolean }> = {
+        score_desc: { column: "score", ascending: false },
+        score_asc: { column: "score", ascending: true },
+        newest: { column: "created_at", ascending: false },
+        email_first: { column: "email", ascending: false, nullsFirst: false },
+      };
+      const { column: orderCol, ascending: orderAsc } = orderMap[sort] ?? orderMap.score_desc;
+      query = query.order(orderCol, { ascending: orderAsc });
+    }
 
     if (run_id) query = query.eq("run_id", run_id);
     if (score_label) query = query.eq("score_label", score_label);
