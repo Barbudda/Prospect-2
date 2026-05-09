@@ -186,23 +186,52 @@ Respond with JSON: { "ranked_indices": [ordered list of indices, best first] }`
 }
 
 // ─── Visual similarity between listing and street-view images ─────────────────
+// Uses the vision model directly — images are sent as image_url blocks so the
+// model actually sees them. The former text-only approach (passing URLs as
+// strings to reason()) could not access images and would hallucinate scores.
 
 export async function computeVisualSimilarity(
   listingImageUrls: string[],
   streetViewImageUrls: string[]
 ): Promise<number> {
-  const result = await reason<{ similarity_score: number; reasoning: string }>(
-    "You are a geospatial visual matching expert. Your task is to determine if listing images and street-view captures show the same physical property.",
-    `Compare the following sets of images and rate visual similarity from 0 to 100.
-Focus on: building facade, architectural style, distinctive exterior features, surrounding environment.
+  const listing = listingImageUrls.slice(0, 2);
+  const streetView = streetViewImageUrls.slice(0, 2);
+  if (!listing.length || !streetView.length) return 0;
 
-Listing images (URLs): ${listingImageUrls.slice(0, 2).join(", ")}
-Street view images (URLs): ${streetViewImageUrls.slice(0, 2).join(", ")}
+  const content: MessageContent[] = [
+    {
+      type: "text",
+      text: `You will see ${listing.length} listing image(s) followed by ${streetView.length} street-view image(s).
+Determine whether they show the same physical property or building.
+Focus strictly on: building facade, architectural style, window patterns, balconies, roofline, vegetation, gates, surrounding environment.
+Rate visual similarity 0-100 (0 = definitely different property, 100 = definitely the same).
+Respond ONLY with valid JSON: {"similarity_score": number, "reasoning": string}`,
+    },
+    ...listing.map((url) => ({
+      type: "image_url" as const,
+      image_url: { url, detail: "high" as const },
+    })),
+    { type: "text" as const, text: "--- Street view images ---" },
+    ...streetView.map((url) => ({
+      type: "image_url" as const,
+      image_url: { url, detail: "low" as const },
+    })),
+  ];
 
-Respond with JSON: { "similarity_score": number, "reasoning": string }`
-  );
+  const data = await mammouthPost<ChatResponse>("/chat/completions", {
+    model: CHAT_MODEL(),
+    messages: [{ role: "user", content }],
+    response_format: { type: "json_object" },
+    max_tokens: 300,
+  });
 
-  return Math.max(0, Math.min(100, result?.similarity_score ?? 0));
+  const text = data.choices?.[0]?.message?.content ?? "";
+  try {
+    const parsed = JSON.parse(text) as { similarity_score?: number };
+    return Math.max(0, Math.min(100, parsed.similarity_score ?? 0));
+  } catch {
+    return 0;
+  }
 }
 
 // ─── Global confidence scoring ────────────────────────────────────────────────

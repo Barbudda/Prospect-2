@@ -117,44 +117,17 @@ async function step2ReverseImageSearch(state: PipelineState): Promise<void> {
   try {
     const allResults: Array<{ url: string; name: string; source: string }> = [];
 
-    // Bing Visual Search
+    // Google Vision Web Detection (via the bing-visual-search module, now backed by Vision API)
     if (Bing.isConfigured()) {
       for (const imageUrl of safeImages) {
         try {
-          const bingResults = await Bing.reverseImageSearch(imageUrl);
-          for (const r of bingResults.results) {
-            allResults.push({ url: r.url, name: r.name, source: "bing" });
+          const visionResults = await Bing.reverseImageSearch(imageUrl);
+          for (const r of visionResults.results) {
+            allResults.push({ url: r.url, name: r.name, source: "google_vision" });
           }
           await sleep(500);
         } catch {
           // per-image errors are non-fatal
-        }
-      }
-    }
-
-    // SerpAPI reverse image (existing SERPAPI_API_KEY)
-    if (process.env.SERPAPI_API_KEY) {
-      for (const imageUrl of safeImages.slice(0, 1)) {
-        try {
-          const params = new URLSearchParams({
-            api_key: process.env.SERPAPI_API_KEY,
-            engine: "google_reverse_image",
-            image_url: imageUrl,
-          });
-          const res = await fetch(`https://serpapi.com/search?${params}`, {
-            signal: AbortSignal.timeout(15_000),
-          });
-          if (res.ok) {
-            const data = await res.json() as {
-              image_results?: Array<{ link?: string; title?: string }>;
-            };
-            for (const r of data.image_results ?? []) {
-              if (r.link) allResults.push({ url: r.link, name: r.title ?? "", source: "serpapi" });
-            }
-          }
-          await sleep(600);
-        } catch {
-          // non-fatal
         }
       }
     }
@@ -220,7 +193,7 @@ Respond with JSON: {
     );
 
     state.geoHypotheses = (hypotheses?.hypotheses ?? []).filter(
-      (h) => h.latitude && h.longitude && Math.abs(h.latitude) <= 90 && Math.abs(h.longitude) <= 180
+      (h) => h.latitude != null && h.longitude != null && Math.abs(h.latitude) <= 90 && Math.abs(h.longitude) <= 180
     );
 
     mark(state, "geo_hypothesis", state.geoHypotheses.length ? "completed" : "failed");
@@ -320,20 +293,20 @@ async function step5PlaceMatch(state: PipelineState): Promise<void> {
       }>;
     };
 
+    // Note: Nearby Search does not return website — only name, vicinity, place_id
     const places = (data.results ?? []).slice(0, 10).map((p) => ({
       name: p.name ?? "",
       address: p.vicinity,
       place_id: p.place_id,
-      website: p.website,
     }));
 
-    state.nearbyPlaces = places;
+    state.nearbyPlaces = places.map((p) => ({ ...p, website: undefined }));
 
     if (!places.length) { mark(state, "place_match", "skipped"); return; }
 
     // Mammouth matches property to operator from nearby businesses
     const match = await Mammouth.reason<{
-      best_match: { name: string; address?: string; website?: string; confidence: number };
+      best_match: { name: string; address?: string; place_id?: string; confidence: number };
       reasoning: string;
     }>(
       "You are a property-to-operator matching engine.",
@@ -350,13 +323,35 @@ Identify the most likely operator. Consider: name relevance, proximity, accommod
 If no clear match, return the closest candidate with low confidence.
 
 Respond with JSON: {
-  "best_match": { "name": string, "address": string, "website": string, "confidence": number },
+  "best_match": { "name": string, "address": string, "place_id": string, "confidence": number },
   "reasoning": string
 }`
     );
 
     if (match?.best_match) {
-      state.matchedPlace = match.best_match;
+      // Fetch Place Details to get the website (not available in Nearby Search)
+      let website: string | undefined;
+      if (match.best_match.place_id && mapsKey) {
+        try {
+          const detailsParams = new URLSearchParams({
+            place_id: match.best_match.place_id,
+            fields: "website",
+            key: mapsKey,
+          });
+          const detailsRes = await fetch(
+            `https://maps.googleapis.com/maps/api/place/details/json?${detailsParams}`,
+            { signal: AbortSignal.timeout(8_000) }
+          );
+          if (detailsRes.ok) {
+            const details = await detailsRes.json() as { result?: { website?: string } };
+            website = details.result?.website;
+          }
+        } catch {
+          // non-fatal — proceed without website
+        }
+      }
+
+      state.matchedPlace = { ...match.best_match, website };
     }
 
     mark(state, "place_match", "completed");
