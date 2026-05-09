@@ -358,6 +358,81 @@ export interface STRDataProvider {
   ): Promise<OwnerEnrichmentResult>;
 }
 
+// ─── Geo-Reconstruction Engine types ─────────────────────────────────────────
+
+export interface GeoReconstructionInput {
+  listing_images: string[];
+  listing_text: string;
+  city: string;
+  country?: string;
+}
+
+export interface GeoHypothesis {
+  neighborhood: string;
+  latitude: number;
+  longitude: number;
+  confidence: number;
+  reasoning: string;
+}
+
+export interface PropertyVisionProfile {
+  description: string;
+  property_type: string;
+  detected_features: string[];
+  geographic_clues: string[];
+  ocr_text: string[];
+  environment_type: string;
+}
+
+export interface CadastralParcel {
+  parcel_id: string;
+  cadastral_reference: string;
+  commune: string;
+  section: string;
+  numero: string;
+  area_m2?: number;
+  coordinates: { longitude: number; latitude: number };
+}
+
+export interface ReconstructedOperator {
+  name: string;
+  website?: string;
+  activity?: string;
+  siret?: string;
+  siren?: string;
+  address?: string;
+  confidence: number;
+}
+
+export interface GeoReconstructionResult {
+  detected_location: {
+    latitude: number;
+    longitude: number;
+    address?: string;
+    neighborhood?: string;
+    confidence: number;
+  } | null;
+  property_match: {
+    street_view_similarity: number;
+    confirmed: boolean;
+    street_view_url?: string;
+  } | null;
+  parcel_info: CadastralParcel | null;
+  operator: ReconstructedOperator | null;
+  contact: {
+    email?: string;
+    phone?: string;
+  };
+  direct_booking: boolean;
+  direct_booking_url?: string;
+  confidence_scores: {
+    geo_confidence: number;
+    image_match_confidence: number;
+    entity_confidence: number;
+  };
+  pipeline_steps: Record<string, "completed" | "skipped" | "failed">;
+}
+
 // ─── API response shapes ──────────────────────────────────────────────────────
 
 export interface RunStatusResponse {
