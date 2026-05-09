@@ -110,24 +110,38 @@ function toGl(country: string): string {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+export interface IndividualHostFilters {
+  superhostOnly?: boolean;
+  minReviews?: number;
+  platform?: "all" | "airbnb" | "abritel";
+}
+
 export async function runIndividualHostFinder(
   city: string,
   country: string,
-  maxLeads = 30
+  maxLeads = 30,
+  filters: IndividualHostFilters = {}
 ): Promise<NormalizedLead[]> {
   if (!process.env.SERPAPI_API_KEY) return [];
 
   const gl = toGl(country);
   const hl = gl === "fr" ? "fr" : "en";
   const isFrance = country.toLowerCase().includes("franc");
+  const { superhostOnly = false, minReviews = 0, platform = "all" } = filters;
 
-  // ── Search queries targeting individual listings ──────────────────────────
-  const queries: string[] = [
-    `site:airbnb.com/rooms "${city}"`,
-    ...(isFrance ? [`site:airbnb.fr/rooms "${city}"`] : []),
-    `site:abritel.fr/location-vacances "${city}" particulier`,
-    `site:airbnb.com/rooms ${city} superhost`,
-  ];
+  // ── Build queries based on platform filter ────────────────────────────────
+  const queries: string[] = [];
+
+  if (platform !== "abritel") {
+    queries.push(`site:airbnb.com/rooms "${city}"`);
+    if (isFrance) queries.push(`site:airbnb.fr/rooms "${city}"`);
+    if (superhostOnly) queries.push(`site:airbnb.com/rooms ${city} superhost`);
+    else queries.push(`site:airbnb.com/rooms ${city}`);
+  }
+
+  if (platform !== "airbnb") {
+    queries.push(`site:abritel.fr/location-vacances "${city}" particulier`);
+  }
 
   const seen = new Set<string>();
   const rawResults: Array<{ url: string; title: string; snippet: string }> = [];
@@ -156,6 +170,10 @@ export async function runIndividualHostFinder(
 
     // Skip if no meaningful host signal
     if (!hostName && !listingTitle) continue;
+
+    // Apply targeting filters
+    if (superhostOnly && !isSuperhost) continue;
+    if (minReviews > 0 && (reviewCount ?? 0) < minReviews) continue;
 
     const displayName = [hostName, listingTitle].filter(Boolean).join(" — ");
 

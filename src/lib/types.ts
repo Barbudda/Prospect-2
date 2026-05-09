@@ -272,6 +272,12 @@ export interface RunConfig {
   enableWebSearch: boolean;
   enableContactExtraction: boolean;
   enableEnrichment: boolean;
+  // Targeting filters
+  superhostOnly?: boolean;
+  minReviews?: number;
+  platform?: "all" | "airbnb" | "abritel";
+  requireContactMethod?: "any" | "email" | "phone" | "instagram";
+  portfolioSize?: "any" | "individual" | "small" | "medium" | "large";
 }
 
 export const DEFAULT_RUN_CONFIG: RunConfig = {

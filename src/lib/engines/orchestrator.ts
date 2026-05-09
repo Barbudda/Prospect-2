@@ -390,7 +390,11 @@ export async function runSearchOrchestrator(
       await log(supabase, runId, "info", "Individual host mode: searching Airbnb listings directly");
 
       try {
-        const hostLeads = await runIndividualHostFinder(city, country, 40);
+        const hostLeads = await runIndividualHostFinder(city, country, 40, {
+          superhostOnly: cfg.superhostOnly,
+          minReviews: cfg.minReviews,
+          platform: cfg.platform,
+        });
         for (const lead of hostLeads) {
           if (!seenUrls.has(lead.source_url)) {
             seenUrls.add(lead.source_url);
@@ -757,6 +761,15 @@ export async function runSearchOrchestrator(
       const { score, label } = scoreLead(lead);
       return { ...lead, score, score_label: label };
     });
+
+    // Apply post-scoring contact filter
+    if (cfg.requireContactMethod === "email") {
+      allLeads = allLeads.filter((l) => !!l.email);
+    } else if (cfg.requireContactMethod === "phone") {
+      allLeads = allLeads.filter((l) => !!l.phone);
+    } else if (cfg.requireContactMethod === "instagram") {
+      allLeads = allLeads.filter((l) => !!l.instagram_url);
+    }
 
     allLeads.sort((a, b) => b.score - a.score);
     allLeads = allLeads.slice(0, cfg.maxLeadsReturned);

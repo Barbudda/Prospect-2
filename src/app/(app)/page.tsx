@@ -42,6 +42,14 @@ export default function DashboardPage() {
   const [requestedLeads, setRequestedLeads] = useState("50");
   const [loading, setLoading] = useState(false);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
+  // Individual host filters
+  const [superhostOnly, setSuperhostOnly] = useState(false);
+  const [minReviews, setMinReviews] = useState("0");
+  const [platform, setPlatform] = useState("all");
+  // Company filters
+  const [portfolioSize, setPortfolioSize] = useState("any");
+  const [requireEmail, setRequireEmail] = useState(false);
+  // Advanced engine toggles
   const [enableLocalBusiness, setEnableLocalBusiness] = useState(true);
   const [enableWebSearch, setEnableWebSearch] = useState(true);
   const [enableExtraction, setEnableExtraction] = useState(true);
@@ -102,6 +110,12 @@ export default function DashboardPage() {
             enableWebSearch,
             enableContactExtraction: enableExtraction,
             enableEnrichment,
+            // Targeting filters
+            superhostOnly: targetType === "individual_hosts" ? superhostOnly : undefined,
+            minReviews: targetType === "individual_hosts" && parseInt(minReviews, 10) > 0 ? parseInt(minReviews, 10) : undefined,
+            platform: targetType === "individual_hosts" && platform !== "all" ? platform : undefined,
+            portfolioSize: targetType !== "individual_hosts" && portfolioSize !== "any" ? portfolioSize : undefined,
+            requireContactMethod: requireEmail ? "email" : undefined,
           },
         }),
       });
@@ -276,6 +290,88 @@ export default function DashboardPage() {
               </Select>
             </div>
           </div>
+
+          {/* Targeting filters — contextual based on target type */}
+          {targetType === "individual_hosts" && (
+            <div className="rounded-xl border border-border/60 bg-muted/10 p-4 space-y-3">
+              <p className="text-xs font-semibold text-foreground">Individual Host Filters</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Minimum reviews</Label>
+                  <Select value={minReviews} onValueChange={(v: string | null) => { if (v) setMinReviews(v); }}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">Any (include all)</SelectItem>
+                      <SelectItem value="5">5+ reviews</SelectItem>
+                      <SelectItem value="10">10+ reviews</SelectItem>
+                      <SelectItem value="20">20+ reviews (active)</SelectItem>
+                      <SelectItem value="50">50+ reviews (very active)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Platform</Label>
+                  <Select value={platform} onValueChange={(v: string | null) => { if (v) setPlatform(v); }}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All platforms</SelectItem>
+                      <SelectItem value="airbnb">Airbnb only</SelectItem>
+                      <SelectItem value="abritel">Abritel only</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="superhostOnly"
+                  checked={superhostOnly}
+                  onCheckedChange={(v) => setSuperhostOnly(Boolean(v))}
+                  className="h-3.5 w-3.5"
+                />
+                <label htmlFor="superhostOnly" className="text-xs text-muted-foreground cursor-pointer">
+                  Superhost only — only hosts with Airbnb Superhost status
+                </label>
+              </div>
+            </div>
+          )}
+
+          {targetType !== "individual_hosts" && targetType !== "all" && (
+            <div className="rounded-xl border border-border/60 bg-muted/10 p-4 space-y-3">
+              <p className="text-xs font-semibold text-foreground">Company Filters</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Portfolio size</Label>
+                  <Select value={portfolioSize} onValueChange={(v: string | null) => { if (v) setPortfolioSize(v); }}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="any">Any size</SelectItem>
+                      <SelectItem value="individual">Individual (1–5 props)</SelectItem>
+                      <SelectItem value="small">Small (5–20 props)</SelectItem>
+                      <SelectItem value="medium">Medium (20–50 props)</SelectItem>
+                      <SelectItem value="large">Large (50+ props)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="requireEmail"
+                  checked={requireEmail}
+                  onCheckedChange={(v) => setRequireEmail(Boolean(v))}
+                  className="h-3.5 w-3.5"
+                />
+                <label htmlFor="requireEmail" className="text-xs text-muted-foreground cursor-pointer">
+                  Require email — only keep leads where email is found
+                </label>
+              </div>
+            </div>
+          )}
 
           {/* Advanced sources */}
           <div className="rounded-xl border border-border/60 overflow-hidden">

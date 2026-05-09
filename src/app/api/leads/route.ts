@@ -16,6 +16,10 @@ export async function GET(req: NextRequest) {
     const has_email = sp.get("has_email");
     const has_phone = sp.get("has_phone");
     const has_website = sp.get("has_website");
+    const has_instagram = sp.get("has_instagram");
+    const has_contact_form = sp.get("has_contact_form");
+    const superhost = sp.get("superhost");
+    const min_reviews = sp.get("min_reviews");
     const outreach_status = sp.get("outreach_status");
     const city = sp.get("city");
     const search = sp.get("q");
@@ -29,7 +33,7 @@ export async function GET(req: NextRequest) {
     let query = supabase
       .from("leads")
       .select(
-        "id, primary_name, lead_type, city, country, email, phone, website_url, source_url, score, score_label, outreach_status, outreach_email, run_id, exclusivity_score, reconstruction_confidence, reconstructed, platforms_found, platform_count",
+        "id, primary_name, lead_type, city, country, email, phone, website_url, instagram_url, contact_form_url, source_url, score, score_label, outreach_status, outreach_email, run_id, exclusivity_score, reconstruction_confidence, reconstructed, platforms_found, platform_count, superhost, review_count",
         { count: "exact" }
       )
       .eq("user_id", user.id)
@@ -57,6 +61,13 @@ export async function GET(req: NextRequest) {
     if (has_email === "true") query = query.not("email", "is", null);
     if (has_phone === "true") query = query.not("phone", "is", null);
     if (has_website === "true") query = query.not("website_url", "is", null);
+    if (has_instagram === "true") query = query.not("instagram_url", "is", null);
+    if (has_contact_form === "true") query = query.not("contact_form_url", "is", null);
+    if (superhost === "true") query = query.eq("superhost", true);
+    if (min_reviews) {
+      const n = parseInt(min_reviews, 10);
+      if (!isNaN(n) && n > 0) query = query.gte("review_count", n);
+    }
     if (outreach_status) query = query.eq("outreach_status", outreach_status);
     if (city) query = query.ilike("city", `%${city}%`);
     if (search) query = query.or(`primary_name.ilike.%${search}%,email.ilike.%${search}%,company_name.ilike.%${search}%`);

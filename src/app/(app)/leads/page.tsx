@@ -37,12 +37,16 @@ interface Lead {
   email: string | null;
   phone: string | null;
   website_url: string | null;
+  instagram_url: string | null;
+  contact_form_url: string | null;
   source_url: string;
   score: number;
   score_label: ScoreLabel;
   outreach_status: OutreachStatus;
   outreach_email: string | null;
   run_id: string | null;
+  superhost: boolean | null;
+  review_count: number | null;
 }
 
 const SCORE_COLORS: Record<ScoreLabel, string> = {
@@ -80,6 +84,10 @@ export default function LeadsPage() {
   const [hasEmail, setHasEmail] = useState(false);
   const [hasPhone, setHasPhone] = useState(false);
   const [hasWebsite, setHasWebsite] = useState(false);
+  const [hasInstagram, setHasInstagram] = useState(false);
+  const [hasContactForm, setHasContactForm] = useState(false);
+  const [superhostOnly, setSuperhostOnly] = useState(false);
+  const [minReviews, setMinReviews] = useState("");
   const [outreachStatus, setOutreachStatus] = useState("");
   const [sortBy, setSortBy] = useState("score_desc");
 
@@ -94,6 +102,10 @@ export default function LeadsPage() {
       if (hasEmail) params.set("has_email", "true");
       if (hasPhone) params.set("has_phone", "true");
       if (hasWebsite) params.set("has_website", "true");
+      if (hasInstagram) params.set("has_instagram", "true");
+      if (hasContactForm) params.set("has_contact_form", "true");
+      if (superhostOnly) params.set("superhost", "true");
+      if (minReviews) params.set("min_reviews", minReviews);
       if (outreachStatus) params.set("outreach_status", outreachStatus);
       if (sortBy) params.set("sort", sortBy);
 
@@ -107,7 +119,7 @@ export default function LeadsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, runFilter, search, scoreLabel, leadType, hasEmail, hasPhone, hasWebsite, outreachStatus, sortBy]);
+  }, [page, runFilter, search, scoreLabel, leadType, hasEmail, hasPhone, hasWebsite, hasInstagram, hasContactForm, superhostOnly, minReviews, outreachStatus, sortBy]);
 
   useEffect(() => {
     fetchLeads();
@@ -267,98 +279,121 @@ export default function LeadsPage() {
       </div>
 
       {/* Search + Filters */}
-      <div className="space-y-3">
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-        <Input
-          placeholder="Search by name or email..."
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          className="pl-8 h-9"
-        />
-      </div>
-      <div className="flex flex-wrap gap-3 items-end">
-        <div className="w-40">
-          <Select value={scoreLabel} onValueChange={(v: string | null) => { setScoreLabel(!v || v === "__all" ? "" : v); setPage(1); }}>
-            <SelectTrigger>
-              <SelectValue placeholder="Score" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all">All scores</SelectItem>
-              <SelectItem value="Hot">Hot</SelectItem>
-              <SelectItem value="Good">Good</SelectItem>
-              <SelectItem value="Medium">Medium</SelectItem>
-              <SelectItem value="Weak">Weak</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="w-48">
-          <Select value={leadType} onValueChange={(v: string | null) => { setLeadType(!v || v === "__all" ? "" : v); setPage(1); }}>
-            <SelectTrigger>
-              <SelectValue placeholder="Lead type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all">All types</SelectItem>
-              <SelectItem value="Airbnb Concierge">Airbnb Concierge</SelectItem>
-              <SelectItem value="Property Manager">Property Manager</SelectItem>
-              <SelectItem value="Direct Booking Owner">Direct Booking Owner</SelectItem>
-              <SelectItem value="Vacation Rental Agency">Vacation Rental Agency</SelectItem>
-              <SelectItem value="Gîte / Villa Operator">Gîte / Villa Operator</SelectItem>
-              <SelectItem value="Co-host / Consultant">Co-host / Consultant</SelectItem>
-              <SelectItem value="Real Estate Seasonal Rental">Real Estate Seasonal Rental</SelectItem>
-              <SelectItem value="Unknown STR Lead">Unknown STR Lead</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="w-44">
-          <Select value={outreachStatus} onValueChange={(v: string | null) => { setOutreachStatus(!v || v === "__all" ? "" : v); setPage(1); }}>
-            <SelectTrigger>
-              <SelectValue placeholder="Outreach" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all">All statuses</SelectItem>
-              <SelectItem value="not_contacted">Not contacted</SelectItem>
-              <SelectItem value="contacted">Contacted</SelectItem>
-              <SelectItem value="replied">Replied</SelectItem>
-              <SelectItem value="not_interested">Not interested</SelectItem>
-              <SelectItem value="converted">Converted</SelectItem>
-              <SelectItem value="unsubscribed">Unsubscribed</SelectItem>
-              <SelectItem value="opted_out">Opted out</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="w-40">
-          <Select value={sortBy} onValueChange={(v: string | null) => { if (v) { setSortBy(v); setPage(1); } }}>
-            <SelectTrigger>
-              <SelectValue placeholder="Sort by" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="score_desc">Score ↓</SelectItem>
-              <SelectItem value="score_asc">Score ↑</SelectItem>
-              <SelectItem value="newest">Newest first</SelectItem>
-              <SelectItem value="email_first">Email first</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex items-center gap-4 text-sm">
-          <div className="flex items-center gap-1.5">
-            <Switch id="hasEmail" checked={hasEmail} onCheckedChange={(v) => { setHasEmail(v); setPage(1); }} />
-            <Label htmlFor="hasEmail">Has email</Label>
+      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+        {/* Row 1: search + sort */}
+        <div className="flex gap-3 flex-wrap items-center">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="Search by name or email..."
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              className="pl-8 h-9"
+            />
           </div>
-          <div className="flex items-center gap-1.5">
-            <Switch id="hasPhone" checked={hasPhone} onCheckedChange={(v) => { setHasPhone(v); setPage(1); }} />
-            <Label htmlFor="hasPhone">Has phone</Label>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Switch id="hasWebsite" checked={hasWebsite} onCheckedChange={(v) => { setHasWebsite(v); setPage(1); }} />
-            <Label htmlFor="hasWebsite">Has website</Label>
+          <div className="w-44">
+            <Select value={sortBy} onValueChange={(v: string | null) => { if (v) { setSortBy(v); setPage(1); } }}>
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="score_desc">Score ↓ (Best first)</SelectItem>
+                <SelectItem value="score_asc">Score ↑ (Worst first)</SelectItem>
+                <SelectItem value="hidden_potential">Hidden Potential</SelectItem>
+                <SelectItem value="newest">Newest first</SelectItem>
+                <SelectItem value="email_first">Email first</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
-      </div>
+
+        {/* Row 2: dropdowns */}
+        <div className="flex gap-3 flex-wrap">
+          <div className="w-44">
+            <Select value={scoreLabel} onValueChange={(v: string | null) => { setScoreLabel(!v || v === "__all" ? "" : v); setPage(1); }}>
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Score" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all">All scores</SelectItem>
+                <SelectItem value="Hot">Hot</SelectItem>
+                <SelectItem value="Good">Good</SelectItem>
+                <SelectItem value="Medium">Medium</SelectItem>
+                <SelectItem value="Weak">Weak</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="w-52">
+            <Select value={leadType} onValueChange={(v: string | null) => { setLeadType(!v || v === "__all" ? "" : v); setPage(1); }}>
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Lead type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all">All types</SelectItem>
+                <SelectItem value="Individual Airbnb Host">Individual Airbnb Host</SelectItem>
+                <SelectItem value="Airbnb Concierge">Airbnb Concierge</SelectItem>
+                <SelectItem value="Property Manager">Property Manager</SelectItem>
+                <SelectItem value="Direct Booking Owner">Direct Booking Owner</SelectItem>
+                <SelectItem value="Vacation Rental Agency">Vacation Rental Agency</SelectItem>
+                <SelectItem value="Gîte / Villa Operator">Gîte / Villa Operator</SelectItem>
+                <SelectItem value="Co-host / Consultant">Co-host / Consultant</SelectItem>
+                <SelectItem value="Real Estate Seasonal Rental">Real Estate Seasonal Rental</SelectItem>
+                <SelectItem value="Unknown STR Lead">Unknown STR Lead</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="w-44">
+            <Select value={minReviews} onValueChange={(v: string | null) => { setMinReviews(!v || v === "__all" ? "" : v); setPage(1); }}>
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Min. reviews" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all">Any reviews</SelectItem>
+                <SelectItem value="5">5+ reviews</SelectItem>
+                <SelectItem value="10">10+ reviews</SelectItem>
+                <SelectItem value="20">20+ reviews</SelectItem>
+                <SelectItem value="50">50+ reviews</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="w-44">
+            <Select value={outreachStatus} onValueChange={(v: string | null) => { setOutreachStatus(!v || v === "__all" ? "" : v); setPage(1); }}>
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Outreach status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all">All statuses</SelectItem>
+                <SelectItem value="not_contacted">Not contacted</SelectItem>
+                <SelectItem value="contacted">Contacted</SelectItem>
+                <SelectItem value="replied">Replied</SelectItem>
+                <SelectItem value="not_interested">Not interested</SelectItem>
+                <SelectItem value="converted">Converted</SelectItem>
+                <SelectItem value="unsubscribed">Unsubscribed</SelectItem>
+                <SelectItem value="opted_out">Opted out</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Row 3: toggles */}
+        <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm pt-1">
+          {[
+            { id: "fEmail", label: "Email", state: hasEmail, set: setHasEmail },
+            { id: "fPhone", label: "Phone", state: hasPhone, set: setHasPhone },
+            { id: "fWebsite", label: "Website", state: hasWebsite, set: setHasWebsite },
+            { id: "fInstagram", label: "Instagram", state: hasInstagram, set: setHasInstagram },
+            { id: "fContactForm", label: "Contact form", state: hasContactForm, set: setHasContactForm },
+            { id: "fSuperhost", label: "Superhost only", state: superhostOnly, set: setSuperhostOnly },
+          ].map((f) => (
+            <div key={f.id} className="flex items-center gap-1.5">
+              <Switch id={f.id} checked={f.state} onCheckedChange={(v) => { f.set(v); setPage(1); }} />
+              <Label htmlFor={f.id} className="text-xs text-muted-foreground cursor-pointer">{f.label}</Label>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Table */}
@@ -420,10 +455,18 @@ export default function LeadsPage() {
                       {lead.score} {lead.score_label}
                     </span>
                   </TableCell>
-                  <TableCell className="font-medium max-w-[180px] truncate">
-                    <Link href={`/leads/${lead.id}`} className="hover:underline">
+                  <TableCell className="font-medium max-w-[200px]">
+                    <Link href={`/leads/${lead.id}`} className="hover:underline truncate block">
                       {lead.primary_name || "—"}
                     </Link>
+                    <div className="flex gap-1 mt-0.5">
+                      {lead.superhost && (
+                        <span className="text-[10px] px-1 py-0.5 rounded bg-yellow-100 text-yellow-700 font-medium">Superhost</span>
+                      )}
+                      {lead.review_count != null && lead.review_count > 0 && (
+                        <span className="text-[10px] px-1 py-0.5 rounded bg-blue-50 text-blue-600">{lead.review_count} reviews</span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground max-w-[140px] truncate">
                     {lead.lead_type}
@@ -471,13 +514,18 @@ export default function LeadsPage() {
                         Open
                       </Link>
                       {lead.website_url && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          onClick={() => window.open(lead.website_url!, "_blank")}
-                        >
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => window.open(lead.website_url!, "_blank")}>
                           Site
+                        </Button>
+                      )}
+                      {!lead.website_url && lead.contact_form_url && (
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => window.open(lead.contact_form_url!, "_blank")}>
+                          Listing
+                        </Button>
+                      )}
+                      {lead.instagram_url && (
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => window.open(lead.instagram_url!, "_blank")}>
+                          IG
                         </Button>
                       )}
                     </div>
