@@ -268,7 +268,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "POSTGRES_URL_NON_POOLING not set" }, { status: 500 });
   }
 
-  const client = new Client({ connectionString, ssl: { rejectUnauthorized: false } });
+  // One-time migration endpoint — disable cert check for Supabase self-signed chain
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+  const client = new Client({ connectionString });
   const results: string[] = [];
 
   try {
