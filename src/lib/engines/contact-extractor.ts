@@ -39,8 +39,22 @@ const EMAIL_REGEX =
 const OBFUSCATED_EMAIL_REGEX =
   /([a-zA-Z0-9._%+\-]+)\s*[\[\(]?\s*(?:at|@|arobase)\s*[\]\)]?\s*([a-zA-Z0-9.\-]+)\s*[\[\(]?\s*(?:dot|\.)\s*[\]\)]?\s*([a-zA-Z]{2,})/gi;
 
+// Phone regex: negative lookahead/lookbehind prevents matching inside larger digit
+// sequences (e.g. tracking IDs). Requires separators in the generic alternative so
+// plain 16-digit numbers don't match.
 const PHONE_REGEX =
-  /(?:\+?(?:33|44|1|49|34|39|351)\s?)?(?:0[1-9](?:[\s.\-]?\d{2}){4}|\(?\d{2,4}\)?[\s.\-]?\d{2,4}[\s.\-]?\d{2,4}[\s.\-]?\d{2,4})/g;
+  /(?<!\d)(?:\+?(?:33|44|1|49|34|39|351|41|32|31|352)\s?)?(?:0[1-9](?:[\s.\-]?\d{2}){4}|\(?\d{2,4}\)?[\s.\-]\d{2,4}[\s.\-]\d{2,4}(?:[\s.\-]\d{2,4})?)(?!\d)/g;
+
+// Extensions that are never valid email TLDs (JS methods, file extensions, …)
+const NON_EMAIL_EXTENSIONS = new Set([
+  "push", "pop", "shift", "map", "filter", "forEach", "find", "js", "ts",
+  "css", "scss", "less", "svg", "png", "jpg", "jpeg", "gif", "ico", "woff",
+  "woff2", "ttf", "eot", "otf", "min", "json", "xml", "html", "htm",
+  "scri", "font", "script", "queue", "layer",
+]);
+
+// Local parts that look like JavaScript expressions rather than email addresses
+const JS_LOCAL_PART = /^(?:window|document|this|self|globalThis|Array|Object|Math|Date|JSON|console)\./i;
 
 const SPAM_EMAIL_DOMAINS = new Set([
   "example.com",
@@ -121,11 +135,30 @@ function isValidEmail(email: string): boolean {
   if (!email.includes("@")) return false;
   const parts = email.split("@");
   if (parts.length !== 2) return false;
-  const domain = parts[1];
+  const [localPart, domain] = parts;
   if (SPAM_EMAIL_DOMAINS.has(domain)) return false;
-  if (domain.endsWith(".png") || domain.endsWith(".jpg") || domain.endsWith(".gif")) return false;
   if (email.length > 100) return false;
-  return /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(email);
+  if (!(/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(email))) return false;
+  // Reject JS expressions captured by the regex (e.g. window.d@alayer.push)
+  if (JS_LOCAL_PART.test(localPart)) return false;
+  const tld = domain.split(".").pop()?.toLowerCase() ?? "";
+  if (NON_EMAIL_EXTENSIONS.has(tld)) return false;
+  // TLDs are 2–8 chars; longer strings are likely asset paths or method names
+  if (tld.length < 2 || tld.length > 8) return false;
+  return true;
+}
+
+function isValidPhone(raw: string): boolean {
+  const digits = raw.replace(/\D/g, "");
+  // Valid phone digit range: 8–15 (ITU-T E.164 max is 15)
+  if (digits.length < 8 || digits.length > 15) return false;
+  // Reject dates starting with a year (e.g. 20240115)
+  if (/^(19|20)\d{6}/.test(digits)) return false;
+  // Reject repeating-digit patterns (00000000, 11111111)
+  if (/^(\d)\1{7,}$/.test(digits)) return false;
+  // Reject version-number-like strings (1.2.3.4 → lots of dots)
+  if ((raw.match(/\./g) ?? []).length >= 3) return false;
+  return true;
 }
 
 // ─── Phone extraction ────────────────────────────────────────────────────────
@@ -137,6 +170,7 @@ function extractPhonesFromHtml(html: string, sourceUrl: string): ExtractedPhone[
   const telMatches = html.matchAll(/href="tel:([^"]+)"/gi);
   for (const m of telMatches) {
     const raw = m[1].trim();
+    if (!isValidPhone(raw)) continue;
     const normalized = toE164(raw);
     const key = normalized ?? raw;
     found.set(key, {
@@ -147,12 +181,16 @@ function extractPhonesFromHtml(html: string, sourceUrl: string): ExtractedPhone[
     });
   }
 
-  // 2. Regex over visible text
-  const stripped = html.replace(/<[^>]+>/g, " ");
+  // 2. Regex over visible text — strip tags then pre-remove date patterns
+  const stripped = html
+    .replace(/<[^>]+>/g, " ")
+    // Remove DD/MM/YYYY and YYYY-MM-DD so they don't match the phone regex
+    .replace(/\b\d{1,2}[-\/\.]\d{1,2}[-\/\.](19|20)\d{2}\b/g, " ")
+    .replace(/\b(19|20)\d{2}[-\/\.]\d{1,2}[-\/\.]\d{1,2}\b/g, " ");
   const phoneMatches = stripped.matchAll(PHONE_REGEX);
   for (const m of phoneMatches) {
     const raw = m[0].trim();
-    if (raw.replace(/\D/g, "").length < 9) continue;
+    if (!isValidPhone(raw)) continue;
     const normalized = toE164(raw);
     const key = normalized ?? normalizePhone(raw);
     if (!found.has(key)) {

@@ -33,17 +33,32 @@ export function toE164(phone: string, defaultCountryCode = "33"): string | null 
   const stripped = phone.replace(/[^\d]/g, "");
   if (!stripped) return null;
 
+  // E164 range: 7–15 digits after the +
   if (phone.trim().startsWith("+")) {
-    return "+" + stripped;
+    if (stripped.length >= 7 && stripped.length <= 15) return "+" + stripped;
+    return null;
   }
 
+  // +33(0)7... or 33(0)7... notation → remove the domestic (0)
+  // Digits become e.g. "33" + "0" + 9 digits = 12
+  if (
+    stripped.startsWith(defaultCountryCode + "0") &&
+    stripped.length === defaultCountryCode.length + 10
+  ) {
+    return `+${defaultCountryCode}${stripped.slice(defaultCountryCode.length + 1)}`;
+  }
+
+  // Domestic: 0X XX XX XX XX (10 digits starting with 0)
   if (stripped.startsWith("0") && stripped.length === 10) {
-    // French mobile/landline: 0X XX XX XX XX → +33 X XX XX XX XX
     return `+${defaultCountryCode}${stripped.slice(1)}`;
   }
 
-  if (stripped.length >= 10) {
-    return `+${defaultCountryCode}${stripped}`;
+  // Already includes country code without + (e.g. 33XXXXXXXXX for France = 11 digits)
+  if (
+    stripped.startsWith(defaultCountryCode) &&
+    stripped.length === defaultCountryCode.length + 9
+  ) {
+    return `+${stripped}`;
   }
 
   return null;
