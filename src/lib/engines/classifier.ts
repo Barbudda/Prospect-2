@@ -2,6 +2,14 @@ import type { LeadType } from "@/lib/types";
 
 const KEYWORD_MAP: Array<{ type: LeadType; keywords: string[] }> = [
   {
+    type: "Individual Airbnb Host",
+    keywords: [
+      "airbnb.com/rooms", "airbnb.fr/rooms", "abritel.fr/location-vacances",
+      "superhôte", "superhost", "hôte airbnb", "hôte particulier",
+      "airbnb host", "individual host", "particulier airbnb",
+    ],
+  },
+  {
     type: "Airbnb Concierge",
     keywords: [
       "conciergerie", "concierge", "check-in", "check-out",

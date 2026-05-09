@@ -1,6 +1,7 @@
 // Core domain types for Prospect Airbnb Leads V1
 
 export type LeadType =
+  | "Individual Airbnb Host"
   | "Airbnb Concierge"
   | "Property Manager"
   | "Direct Booking Owner"
@@ -240,6 +241,10 @@ export interface NormalizedLead {
   automation_level?: "low" | "medium" | "high";
   has_owner_acquisition_page?: boolean;
   has_owner_cta?: boolean;
+  // Individual host fields
+  superhost?: boolean;
+  review_count?: number;
+  listing_title?: string;
   // Reconstruction layer scores
   reconstruction_confidence?: number;
   exclusivity_score?: number;

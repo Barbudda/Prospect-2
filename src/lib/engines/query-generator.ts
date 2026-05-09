@@ -1,6 +1,6 @@
 // Generates localized search query lists for a given city/country/target type
 
-type TargetType = "all" | "concierges" | "property_managers" | "direct_owners" | "agencies";
+type TargetType = "all" | "concierges" | "property_managers" | "direct_owners" | "agencies" | "individual_hosts";
 
 interface QuerySet {
   localBusiness: string[];
@@ -116,7 +116,7 @@ export function generateQueries(
     );
   }
 
-  // ─ Airbnb-related ─
+  // ─ Airbnb-related (companies + individuals) ─
   if (targetType === "all") {
     allWebFr.push(
       `Airbnb ${c} contact`,
@@ -126,6 +126,20 @@ export function generateQueries(
       `Airbnb maison ${c} propriétaire`,
       `superhôte Airbnb ${c}`,
       `"Airbnb" "contact" ${c}`,
+    );
+  }
+
+  // ─ Individual hosts ─
+  if (targetType === "individual_hosts") {
+    allWebFr.push(
+      `site:airbnb.com/rooms "${c}"`,
+      `site:airbnb.fr/rooms "${c}"`,
+      `site:abritel.fr/location-vacances "${c}" particulier`,
+      `"superhôte" "${c}" airbnb contact`,
+      `hôte airbnb particulier ${c} contact`,
+      `location airbnb particulier ${c} instagram`,
+      `"Superhôte Airbnb" ${c} blog`,
+      `airbnb host ${c} contact email`,
     );
   }
 

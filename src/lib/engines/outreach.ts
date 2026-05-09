@@ -1,6 +1,8 @@
 import type { LeadType } from "@/lib/types";
 
 export const OUTREACH_ANGLES: Record<LeadType, string> = {
+  "Individual Airbnb Host":
+    "Pitch as a personal AI assistant for their listing — handles guest questions 24/7 (check-in times, WiFi, local tips), gets them 5-star reviews, and gives them their time back. Ideal for active hosts who want to scale without stress.",
   "Airbnb Concierge":
     "Pitch as a 24/7 AI guest assistant that eliminates repetitive guest questions across all managed properties — reducing team workload at scale.",
   "Property Manager":

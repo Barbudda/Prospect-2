@@ -14,6 +14,7 @@ import { deduplicateLeads } from "./deduplicator";
 import { generateOutreachAngle } from "./outreach";
 import { runReconstructionEnrichment } from "./intelligence-enrichment";
 import type { LeadWithOgImage } from "./intelligence-enrichment";
+import { runIndividualHostFinder } from "./individual-host-finder";
 import { SerpAPISearchProvider } from "@/lib/providers/serpapi-search";
 import { BraveSearchProvider } from "@/lib/providers/brave-search";
 import { TavilySearchProvider } from "@/lib/providers/tavily-search";
@@ -250,6 +251,10 @@ async function persistLeads(
         automation_level: lead.automation_level ?? null,
         has_owner_acquisition_page: lead.has_owner_acquisition_page ?? null,
         has_owner_cta: lead.has_owner_cta ?? null,
+        // Individual host fields
+        superhost: lead.superhost ?? null,
+        review_count: lead.review_count ?? null,
+        listing_title: lead.listing_title ?? null,
         // Reconstruction layer
         reconstruction_confidence: lead.reconstruction_confidence ?? null,
         exclusivity_score: lead.exclusivity_score ?? null,
@@ -369,16 +374,45 @@ export async function runSearchOrchestrator(
       | "concierges"
       | "property_managers"
       | "direct_owners"
-      | "agencies";
+      | "agencies"
+      | "individual_hosts";
     const queries = generateQueries(city, country, normalizedTarget, cfg.maxSearchQueries);
+    const isIndividualHostMode = normalizedTarget === "individual_hosts";
 
     let allLeads: NormalizedLead[] = [];
     const seenUrls = new Set<string>();
 
+    // ══ ENGINE 0.5: Individual Host Discovery (OTA listing search) ════════
+    // Runs only when targeting individual hosts — finds small operators via
+    // site:airbnb.com/rooms searches, completely bypassing the business index.
+    if (isIndividualHostMode) {
+      await updateRun(supabase, runId, { status: "collecting_sources", progress: 8 });
+      await log(supabase, runId, "info", "Individual host mode: searching Airbnb listings directly");
+
+      try {
+        const hostLeads = await runIndividualHostFinder(city, country, 40);
+        for (const lead of hostLeads) {
+          if (!seenUrls.has(lead.source_url)) {
+            seenUrls.add(lead.source_url);
+            allLeads.push(lead);
+            stats.sources_found++;
+          }
+        }
+        await log(supabase, runId, "info", `Individual host finder: ${hostLeads.length} hosts found`);
+        if (hostLeads.length > 0) {
+          await saveDraftLeads(supabase, hostLeads, userId, runId);
+        }
+      } catch (err) {
+        stats.errors++;
+        await log(supabase, runId, "warn", `Individual host finder error: ${String(err)}`);
+      }
+    }
+
     // ══ ENGINE 1: Local Business Search ══════════════════════════════════
     await updateRun(supabase, runId, { status: "collecting_sources", progress: 10 });
 
-    if (cfg.enableLocalBusiness) {
+    // Skip local business search in individual host mode — it only finds companies
+    if (cfg.enableLocalBusiness && !isIndividualHostMode) {
       const configuredLocalProviders = LOCAL_PROVIDERS.filter((p) => p.isConfigured());
 
       if (configuredLocalProviders.length === 0) {

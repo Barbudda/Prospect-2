@@ -190,12 +190,37 @@ export function scoreLead(lead: Partial<NormalizedLead>): ScoreBreakdown {
   }
 
   // ─ Negative signals ────────────────────────────────────────────────────────
+  // ─ Individual host bonuses ─────────────────────────────────────────────────
+  if (lead.lead_type === "Individual Airbnb Host") {
+    // Base bonus for being a confirmed real host
+    score += 15;
+    reasons.push("+15: confirmed individual Airbnb host");
+
+    if ((lead as { superhost?: boolean }).superhost) {
+      score += 20;
+      reasons.push("+20: Superhost — reliable, quality host");
+    }
+
+    const rc = (lead as { review_count?: number }).review_count ?? 0;
+    if (rc >= 50) {
+      score += 20;
+      reasons.push(`+20: ${rc}+ reviews (very active host)`);
+    } else if (rc >= 20) {
+      score += 15;
+      reasons.push(`+15: ${rc}+ reviews (active host)`);
+    } else if (rc >= 5) {
+      score += 8;
+      reasons.push(`+8: ${rc}+ reviews (established host)`);
+    }
+  }
+
   if (!lead.email && !lead.phone && !lead.contact_form_url && !lead.whatsapp_url) {
     score -= 30;
     reasons.push("-30: no contact method found");
   }
 
-  if (lead.source_type === "ota_listing") {
+  // OTA penalty does not apply to individual hosts — they ARE on OTA by design
+  if (lead.source_type === "ota_listing" && lead.lead_type !== "Individual Airbnb Host") {
     score -= 25;
     reasons.push("-25: OTA-only listing page");
   }

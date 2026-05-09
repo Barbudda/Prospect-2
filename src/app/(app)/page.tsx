@@ -38,7 +38,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [city, setCity] = useState("");
   const [country, setCountry] = useState("France");
-  const [targetType, setTargetType] = useState("all");
+  const [targetType, setTargetType] = useState("individual_hosts");
   const [requestedLeads, setRequestedLeads] = useState("50");
   const [loading, setLoading] = useState(false);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
@@ -250,6 +250,7 @@ export default function DashboardPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="individual_hosts">Individual Airbnb Hosts</SelectItem>
                   <SelectItem value="all">All Airbnb-related</SelectItem>
                   <SelectItem value="concierges">Concierge Services</SelectItem>
                   <SelectItem value="property_managers">Property Managers</SelectItem>

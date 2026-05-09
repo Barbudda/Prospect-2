@@ -59,6 +59,10 @@ interface LeadDetail {
   automation_level?: "low" | "medium" | "high" | null;
   has_owner_acquisition_page?: boolean | null;
   has_owner_cta?: boolean | null;
+  // Individual host fields
+  superhost?: boolean | null;
+  review_count?: number | null;
+  listing_title?: string | null;
   // Reconstruction layer
   reconstruction_confidence?: number | null;
   exclusivity_score?: number | null;
@@ -235,6 +239,16 @@ export default function LeadDetailPage() {
               {lead.exclusivity_score != null && lead.exclusivity_score >= 70 && lead.opportunity_score != null && lead.opportunity_score >= 60 && (
                 <span className="rounded px-2 py-0.5 text-xs font-bold bg-amber-100 text-amber-700 border border-amber-300">
                   Hidden Lead
+                </span>
+              )}
+              {lead.superhost && (
+                <span className="rounded px-2 py-0.5 text-xs font-bold bg-yellow-100 text-yellow-700 border border-yellow-300">
+                  Superhost
+                </span>
+              )}
+              {lead.review_count != null && lead.review_count > 0 && (
+                <span className="rounded px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-600 border border-blue-200">
+                  {lead.review_count} reviews
                 </span>
               )}
             </div>
