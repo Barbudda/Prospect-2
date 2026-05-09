@@ -47,6 +47,18 @@ interface LeadDetail {
   notes?: string;
   quality_summary?: string;
   created_at: string;
+  opportunity_score?: number | null;
+  scale_score?: number | null;
+  intent_score?: number | null;
+  estimated_property_count?: number | null;
+  has_team?: boolean | null;
+  cities_detected?: string[] | null;
+  has_faq?: boolean | null;
+  has_booking_engine?: boolean | null;
+  has_chatbot?: boolean | null;
+  automation_level?: "low" | "medium" | "high" | null;
+  has_owner_acquisition_page?: boolean | null;
+  has_owner_cta?: boolean | null;
   sources: Array<{
     id: string;
     provider: string;
@@ -79,6 +91,35 @@ const SCORE_COLORS: Record<ScoreLabel, string> = {
   Medium: "bg-yellow-100 text-yellow-700",
   Weak: "bg-gray-100 text-gray-600",
 };
+
+function ScoreBar({ label, score, description, color }: {
+  label: string; score: number; description: string; color: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium">{label}</span>
+        <span className={`text-sm font-bold ${color}`}>{score}/100</span>
+      </div>
+      <div className="w-full bg-muted rounded-full h-2">
+        <div
+          className={`h-2 rounded-full transition-all ${color.includes("red") ? "bg-red-500" : color.includes("blue") ? "bg-blue-500" : "bg-green-500"}`}
+          style={{ width: `${score}%` }}
+        />
+      </div>
+      <p className="text-xs text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
+function Flag({ label, value }: { label: string; value: boolean | null | undefined }) {
+  if (value === null || value === undefined) return null;
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${value ? "bg-green-50 text-green-700 border-green-200" : "bg-gray-50 text-gray-500 border-gray-200"}`}>
+      {value ? "✓" : "✗"} {label}
+    </span>
+  );
+}
 
 function ContactItem({ label, value, href }: { label: string; value: string; href?: string }) {
   return (
@@ -242,6 +283,76 @@ export default function LeadDetailPage() {
           </CardHeader>
           <CardContent>
             <p className="text-sm leading-relaxed">{lead.quality_summary}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Intelligence Layer */}
+      {(lead.opportunity_score != null || lead.scale_score != null || lead.intent_score != null) && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+              Intelligence Scores
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {lead.opportunity_score != null && (
+              <ScoreBar
+                label="Opportunity"
+                score={lead.opportunity_score}
+                description="How much this lead needs our solution — high when they have low digital maturity and likely manual processes."
+                color={lead.opportunity_score >= 70 ? "text-red-600" : lead.opportunity_score >= 45 ? "text-yellow-600" : "text-gray-500"}
+              />
+            )}
+            {lead.scale_score != null && (
+              <ScoreBar
+                label="Scale"
+                score={lead.scale_score}
+                description="Business size and revenue potential — higher when they manage many properties or multiple cities."
+                color={lead.scale_score >= 60 ? "text-blue-600" : lead.scale_score >= 30 ? "text-blue-400" : "text-gray-500"}
+              />
+            )}
+            {lead.intent_score != null && (
+              <ScoreBar
+                label="Intent"
+                score={lead.intent_score}
+                description="How actively they are acquiring new owner clients — high when they have explicit owner acquisition messaging."
+                color={lead.intent_score >= 60 ? "text-green-600" : lead.intent_score >= 30 ? "text-green-400" : "text-gray-500"}
+              />
+            )}
+            {/* Digital maturity flags */}
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Digital Maturity</p>
+              <div className="flex flex-wrap gap-2">
+                <Flag label="Booking Engine" value={lead.has_booking_engine} />
+                <Flag label="Chatbot" value={lead.has_chatbot} />
+                <Flag label="FAQ Page" value={lead.has_faq} />
+                <Flag label="Team" value={lead.has_team} />
+                <Flag label="Owner Acquisition Page" value={lead.has_owner_acquisition_page} />
+                <Flag label="Owner CTA" value={lead.has_owner_cta} />
+                {lead.automation_level && (
+                  <span className={`text-xs px-2 py-0.5 rounded-full border ${
+                    lead.automation_level === "high" ? "bg-purple-50 text-purple-700 border-purple-200" :
+                    lead.automation_level === "medium" ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
+                    "bg-orange-50 text-orange-700 border-orange-200"
+                  }`}>
+                    Automation: {lead.automation_level}
+                  </span>
+                )}
+              </div>
+            </div>
+            {lead.cities_detected && lead.cities_detected.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1 uppercase tracking-wide">Cities Detected</p>
+                <p className="text-sm">{lead.cities_detected.join(", ")}</p>
+              </div>
+            )}
+            {lead.estimated_property_count != null && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1 uppercase tracking-wide">Estimated Properties</p>
+                <p className="text-sm font-medium">{lead.estimated_property_count} properties</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

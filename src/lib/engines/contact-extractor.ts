@@ -365,6 +365,71 @@ function extractNumberOfProperties(html: string): number | undefined {
   return undefined;
 }
 
+// ─── Intelligence detection ───────────────────────────────────────────────
+
+const BOOKING_ENGINE_SIGNALS = [
+  "lodgify", "smoobu", "hostaway", "guesty", "beds24", "supercontrol",
+  "apaleo", "bookingsync", "krossbook", "avantio", "rentalsunited",
+  "booking-engine", "reservation-engine", "reservations-widget",
+  "ical", "ics", "bookdirect",
+];
+
+const CHATBOT_SIGNALS = [
+  "intercom", "crisp.chat", "drift.com", "tidio", "tawk.to",
+  "livechat", "freshchat", "zendesk", "messenger.com/t/",
+  "hubspot.com/conversations", "botpress",
+];
+
+const OWNER_CTA_PATTERNS =
+  /confiez[- ]?nous|confiez\s+votre|déposez\s+votre\s+bien|devenez\s+partenaire|rejoignez[- ]?nous|mettez\s+en\s+location|votre\s+bien\s+chez\s+nous|propriétaires,\s*rejoignez/i;
+
+const TEAM_PATTERNS =
+  /notre\s+(?:équipe|team|staff|personnel)|nos\s+(?:collaborateurs|experts|spécialistes|conseillers)|management\s+team|our\s+team|meet\s+the\s+team/i;
+
+function detectDigitalMaturity(html: string): {
+  has_faq: boolean;
+  has_booking_engine: boolean;
+  has_chatbot: boolean;
+  automation_level: "low" | "medium" | "high";
+} {
+  const lower = html.toLowerCase();
+  const has_faq =
+    /href="[^"]*\/faq[^"]*"|foire aux questions|questions fréquentes/i.test(html);
+  const has_booking_engine = BOOKING_ENGINE_SIGNALS.some((s) => lower.includes(s));
+  const has_chatbot = CHATBOT_SIGNALS.some((s) => lower.includes(s));
+  const digitalCount = [has_booking_engine, has_chatbot, has_faq].filter(Boolean).length;
+  const hasPms = /channel.?manager|property.?management.?system|logiciel\s+de\s+gestion|automatisation|pms\b/i.test(html);
+  let automation_level: "low" | "medium" | "high" = "low";
+  if (digitalCount >= 2 || hasPms) automation_level = "high";
+  else if (digitalCount >= 1) automation_level = "medium";
+  return { has_faq, has_booking_engine, has_chatbot, automation_level };
+}
+
+function detectIntent(html: string, contactFormType?: string): {
+  has_owner_acquisition_page: boolean;
+  has_owner_cta: boolean;
+} {
+  const has_owner_cta = OWNER_CTA_PATTERNS.test(html);
+  const has_owner_acquisition_page =
+    has_owner_cta ||
+    contactFormType === "owner_acquisition" ||
+    /propriétaires|owner.*acquisition|confier.*appartement|confier.*logement/i.test(html);
+  return { has_owner_acquisition_page, has_owner_cta };
+}
+
+function detectCities(html: string): string[] {
+  // Look for "présents à X, Y et Z" or "disponible à X" patterns
+  const text = html.replace(/<[^>]+>/g, " ");
+  const matches: string[] = [];
+  const presencePattern =
+    /(?:présents?\s+(?:à|dans|en)|disponibles?\s+(?:à|dans)|intervenons?\s+(?:à|dans|sur)|couvrons?\s+(?:la\s+région\s+de)?)\s+([A-ZÀ-Ÿ][a-zà-ÿ\-]{2,}(?:,\s*[A-ZÀ-Ÿ][a-zà-ÿ\-]{2,})*)/gi;
+  for (const m of text.matchAll(presencePattern)) {
+    const cities = m[1].split(/,\s*/).map((s) => s.trim()).filter((s) => s.length > 2);
+    matches.push(...cities);
+  }
+  return [...new Set(matches)].slice(0, 10);
+}
+
 // ─── Main extractor ───────────────────────────────────────────────────────
 
 export interface CrawlOptions {
@@ -403,6 +468,15 @@ export async function extractContactsFromWebsite(
   let keywords: string[] = [];
   let propertyCount: number | undefined;
   let contactPageUrl: string | undefined;
+  // Intelligence accumulators
+  let has_faq = false;
+  let has_booking_engine = false;
+  let has_chatbot = false;
+  let automation_level: "low" | "medium" | "high" = "low";
+  let has_owner_cta = false;
+  let has_owner_acquisition_page = false;
+  let has_team = false;
+  let cities_detected: string[] = [];
 
   for (const url of urlsToTry) {
     const html = await fetchPage(url, timeoutMs);
@@ -435,6 +509,27 @@ export async function extractContactsFromWebsite(
       url.includes("about");
     if (isContactPage && (emails.length > 0 || phones.length > 0)) {
       contactPageUrl = url;
+    }
+
+    // Intelligence detection — accumulate across all pages
+    try {
+      const maturity = detectDigitalMaturity(html);
+      if (maturity.has_faq) has_faq = true;
+      if (maturity.has_booking_engine) has_booking_engine = true;
+      if (maturity.has_chatbot) has_chatbot = true;
+      if (maturity.automation_level === "high") automation_level = "high";
+      else if (maturity.automation_level === "medium" && automation_level === "low") automation_level = "medium";
+
+      const intent = detectIntent(html, contactForm?.form_type);
+      if (intent.has_owner_cta) has_owner_cta = true;
+      if (intent.has_owner_acquisition_page) has_owner_acquisition_page = true;
+
+      if (!has_team && TEAM_PATTERNS.test(html)) has_team = true;
+
+      const newCities = detectCities(html);
+      cities_detected = [...new Set([...cities_detected, ...newCities])];
+    } catch {
+      // intelligence detection is best-effort — never crash the crawl
     }
   }
 
@@ -473,6 +568,15 @@ export async function extractContactsFromWebsite(
     relevant_keywords: keywords,
     number_of_properties: propertyCount,
     ...(social as object),
+    // Intelligence signals
+    has_faq,
+    has_booking_engine,
+    has_chatbot,
+    automation_level,
+    has_owner_acquisition_page,
+    has_owner_cta,
+    has_team,
+    cities_served: cities_detected.length > 0 ? cities_detected : undefined,
   };
 
   return contacts;

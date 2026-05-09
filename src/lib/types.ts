@@ -127,6 +127,14 @@ export interface ExtractedContacts {
   relevant_keywords?: string[];
   booking_engine_links?: string[];
   pms_links?: string[];
+  // Intelligence layer — populated by enhanced crawl
+  has_faq?: boolean;
+  has_booking_engine?: boolean;
+  has_chatbot?: boolean;
+  automation_level?: "low" | "medium" | "high";
+  has_owner_acquisition_page?: boolean;
+  has_owner_cta?: boolean;
+  has_team?: boolean;
 }
 
 // ─── Enrichment ─────────────────────────────────────────────────────────────
@@ -216,6 +224,19 @@ export interface NormalizedLead {
     confidence?: Confidence;
   }>;
   raw_payload?: Record<string, unknown>;
+  // Intelligence layer scores
+  opportunity_score?: number;
+  scale_score?: number;
+  intent_score?: number;
+  estimated_property_count?: number;
+  has_team?: boolean;
+  cities_detected?: string[];
+  has_faq?: boolean;
+  has_booking_engine?: boolean;
+  has_chatbot?: boolean;
+  automation_level?: "low" | "medium" | "high";
+  has_owner_acquisition_page?: boolean;
+  has_owner_cta?: boolean;
 }
 
 // ─── Run config ─────────────────────────────────────────────────────────────

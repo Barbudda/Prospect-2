@@ -9,7 +9,7 @@ import type {
 import { generateQueries, detectLanguage } from "./query-generator";
 import { extractContactsFromWebsite } from "./contact-extractor";
 import { classifyLead } from "./classifier";
-import { scoreLead } from "./scorer";
+import { scoreLead, scoreOpportunity, scoreScale, scoreIntent, getScoreLabel } from "./scorer";
 import { deduplicateLeads } from "./deduplicator";
 import { generateOutreachAngle } from "./outreach";
 import { SerpAPISearchProvider } from "@/lib/providers/serpapi-search";
@@ -236,6 +236,18 @@ async function persistLeads(
         outreach_status: "not_contacted",
         suggested_angle: lead.suggested_angle,
         quality_summary: lead.quality_summary,
+        opportunity_score: lead.opportunity_score ?? null,
+        scale_score: lead.scale_score ?? null,
+        intent_score: lead.intent_score ?? null,
+        estimated_property_count: lead.estimated_property_count ?? null,
+        has_team: lead.has_team ?? null,
+        cities_detected: lead.cities_detected ?? null,
+        has_faq: lead.has_faq ?? null,
+        has_booking_engine: lead.has_booking_engine ?? null,
+        has_chatbot: lead.has_chatbot ?? null,
+        automation_level: lead.automation_level ?? null,
+        has_owner_acquisition_page: lead.has_owner_acquisition_page ?? null,
+        has_owner_cta: lead.has_owner_cta ?? null,
       })
       .select("id")
       .single();
@@ -493,6 +505,16 @@ export async function runSearchOrchestrator(
                 contact_form_url: contacts.contact_form?.form_url ?? existing.contact_form_url,
                 company_name: contacts.company_name || existing.company_name,
                 primary_name: contacts.company_name || existing.primary_name,
+                // Intelligence signals from crawl
+                has_faq: contacts.has_faq,
+                has_booking_engine: contacts.has_booking_engine,
+                has_chatbot: contacts.has_chatbot,
+                automation_level: contacts.automation_level,
+                has_owner_acquisition_page: contacts.has_owner_acquisition_page,
+                has_owner_cta: contacts.has_owner_cta,
+                has_team: contacts.has_team,
+                estimated_property_count: contacts.number_of_properties ?? existing.estimated_property_count,
+                cities_detected: contacts.cities_served ?? existing.cities_detected,
               };
 
               if (contacts.relevant_keywords && contacts.relevant_keywords.length > 0) {
@@ -520,9 +542,48 @@ export async function runSearchOrchestrator(
                   .join(" ");
               }
 
-              const { score, label } = scoreLead(updated);
-              updated.score = score;
-              updated.score_label = label;
+              // Compute intelligence sub-scores
+              const oppScore = scoreOpportunity({
+                has_booking_engine: contacts.has_booking_engine,
+                has_chatbot: contacts.has_chatbot,
+                has_faq: contacts.has_faq,
+                automation_level: contacts.automation_level,
+                has_email: !!updated.email,
+                has_phone: !!updated.phone,
+                has_contact_form: !!updated.contact_form_url,
+              });
+              const scaleScore = scoreScale({
+                estimated_property_count: contacts.number_of_properties,
+                has_team: contacts.has_team,
+                cities_count: contacts.cities_served?.length ?? 0,
+              });
+              const intentScore = scoreIntent({
+                has_owner_acquisition_page: contacts.has_owner_acquisition_page,
+                has_owner_cta: contacts.has_owner_cta,
+                contact_form_type: contacts.contact_form?.form_type,
+              });
+
+              updated.opportunity_score = oppScore;
+              updated.scale_score = scaleScore;
+              updated.intent_score = intentScore;
+
+              // Blend quality + intelligence into final score
+              const { score: qualityScore } = scoreLead(updated);
+              const blended = Math.round(
+                0.45 * qualityScore +
+                0.20 * oppScore +
+                0.25 * scaleScore +
+                0.10 * intentScore
+              );
+              updated.score = Math.min(100, blended);
+              updated.score_label = getScoreLabel(updated.score);
+
+              // Update outreach angle using intelligence
+              updated.suggested_angle = generateOutreachAngle(updated.lead_type, {
+                opportunity: oppScore,
+                scale: scaleScore,
+                intent: intentScore,
+              });
 
               allLeads[idx] = updated;
             }

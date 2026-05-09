@@ -6,6 +6,71 @@ export interface ScoreBreakdown {
   reasons: string[];
 }
 
+// ─── Sub-scores ────────────────────────────────────────────────────────────
+
+export function scoreOpportunity(signals: {
+  has_booking_engine?: boolean;
+  has_chatbot?: boolean;
+  has_faq?: boolean;
+  automation_level?: "low" | "medium" | "high";
+  has_email?: boolean;
+  has_phone?: boolean;
+  has_contact_form?: boolean;
+}): number {
+  // Start at 100 (maximum opportunity) and deduct for signs of digital maturity
+  let score = 100;
+  if (signals.has_booking_engine) score -= 30;
+  if (signals.has_chatbot) score -= 25;
+  if (signals.automation_level === "high") score -= 20;
+  else if (signals.automation_level === "medium") score -= 10;
+  if (signals.has_faq) score -= 10;
+  // Well-structured contact = more organised = slight deduction
+  const contactMethods =
+    (signals.has_email ? 1 : 0) +
+    (signals.has_phone ? 1 : 0) +
+    (signals.has_contact_form ? 1 : 0);
+  if (contactMethods >= 3) score -= 5;
+  return Math.max(0, Math.min(100, score));
+}
+
+export function scoreScale(signals: {
+  estimated_property_count?: number;
+  has_team?: boolean;
+  cities_count?: number;
+}): number {
+  let score = 0;
+  const count = signals.estimated_property_count ?? 0;
+  if (count >= 50) score += 55;
+  else if (count >= 20) score += 40;
+  else if (count >= 10) score += 25;
+  else if (count >= 5) score += 15;
+  else if (count >= 2) score += 5;
+  if (signals.has_team) score += 30;
+  const cities = signals.cities_count ?? 0;
+  if (cities >= 3) score += 15;
+  else if (cities >= 2) score += 8;
+  return Math.max(0, Math.min(100, score));
+}
+
+export function scoreIntent(signals: {
+  has_owner_acquisition_page?: boolean;
+  has_owner_cta?: boolean;
+  contact_form_type?: string;
+}): number {
+  let score = 0;
+  if (signals.has_owner_acquisition_page) score += 50;
+  if (signals.has_owner_cta) score += 30;
+  if (signals.contact_form_type === "owner_acquisition") score += 20;
+  return Math.min(100, score);
+}
+
+export function getScoreLabel(score: number): ScoreLabel {
+  if (score >= 80) return "Hot";
+  if (score >= 60) return "Good";
+  if (score >= 40) return "Medium";
+  return "Weak";
+}
+
 export function scoreLead(lead: Partial<NormalizedLead>): ScoreBreakdown {
   let score = 0;
   const reasons: string[] = [];

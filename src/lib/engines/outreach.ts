@@ -19,6 +19,24 @@ export const OUTREACH_ANGLES: Record<LeadType, string> = {
     "Pitch as an AI guest assistant for short-term rentals — personalized follow-up after qualification.",
 };
 
-export function generateOutreachAngle(leadType: LeadType): string {
+export function generateOutreachAngle(
+  leadType: LeadType,
+  scores?: { opportunity?: number; scale?: number; intent?: number }
+): string {
+  if (scores) {
+    const { opportunity = 0, scale = 0, intent = 0 } = scores;
+    const dominant = Math.max(opportunity, scale, intent);
+    if (dominant >= 60) {
+      if (opportunity === dominant) {
+        return "Pitch automation: their site shows low digital maturity and likely manual processes. Position the AI assistant as the quickest win to save hours per week without hiring.";
+      }
+      if (scale === dominant) {
+        return "Pitch portfolio optimisation: they manage a significant number of properties. Position the AI assistant as a scalable guest support layer that grows with their portfolio without adding headcount.";
+      }
+      if (intent === dominant) {
+        return "Pitch owner partnership: they are actively acquiring new properties. Position the AI assistant as a competitive advantage they can offer to new owner clients to win mandates faster.";
+      }
+    }
+  }
   return OUTREACH_ANGLES[leadType] ?? OUTREACH_ANGLES["Unknown STR Lead"];
 }
