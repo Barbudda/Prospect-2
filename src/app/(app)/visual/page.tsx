@@ -21,29 +21,39 @@ import {
   Sparkles,
   AlertCircle,
   ArrowRight,
+  Star,
 } from "lucide-react";
 import { toast } from "sonner";
 
 // ─── Pipeline steps definition ───────────────────────────────────────────────
 
 const PIPELINE_STEPS = [
-  { key: "extract",   label: "Image Extraction",      detail: "Fetching listing photos",                  delay: 1500  },
-  { key: "vision",    label: "Google Vision AI",       detail: "Detecting objects, labels, OCR text",      delay: 4000  },
-  { key: "mammouth1", label: "Mammouth Analysis",      detail: "Generating property semantic profile",     delay: 7000  },
-  { key: "geo",       label: "Geo Hypothesis",         detail: "Generating location candidates",           delay: 10000 },
-  { key: "streetview",label: "Street View Matching",   detail: "Computing visual similarity score",        delay: 16000 },
-  { key: "places",    label: "Place & Business Match", detail: "Searching nearby operators",               delay: 21000 },
-  { key: "cadastre",  label: "IGN Cadastre",           detail: "Identifying cadastral parcel",             delay: 24000 },
-  { key: "entity",    label: "Entity Resolution",      detail: "Pappers + web search → Mammouth ranking", delay: 28000 },
-  { key: "contact",   label: "Contact Enrichment",     detail: "Dropcontact professional lookup",          delay: 33000 },
-  { key: "booking",   label: "Direct Booking Scan",    detail: "Detecting booking engine signals",         delay: 37000 },
-  { key: "scoring",   label: "Global Scoring",         detail: "Mammouth computes confidence scores",      delay: 40000 },
+  { key: "extract",   label: "Image Extraction",      detail: "Fetching listing photos",                             delay: 1500  },
+  { key: "vision",    label: "Google Vision AI",       detail: "Detecting objects, labels, OCR text",                 delay: 4000  },
+  { key: "mammouth1", label: "Mammouth Analysis",      detail: "Generating property semantic profile",                delay: 7000  },
+  { key: "geo",       label: "Geo Hypothesis",         detail: "Generating location candidates",                      delay: 10000 },
+  { key: "streetview",label: "Street View Matching",   detail: "Computing visual similarity score",                   delay: 16000 },
+  { key: "places",    label: "Place & Business Match", detail: "Searching nearby operators",                          delay: 21000 },
+  { key: "cadastre",  label: "IGN Cadastre",           detail: "Identifying cadastral parcel",                        delay: 24000 },
+  { key: "entity",    label: "Entity Resolution",      detail: "Pappers + web search → Mammouth ranking",            delay: 28000 },
+  { key: "contact",   label: "Contact Enrichment",     detail: "Dropcontact professional lookup",                     delay: 33000 },
+  { key: "phone",     label: "Phone Hunter",           detail: "Searching registries, OTAs & Pages Jaunes for phone", delay: 37000 },
+  { key: "booking",   label: "Direct Booking Scan",    detail: "Detecting booking engine signals",                    delay: 41000 },
+  { key: "scoring",   label: "Global Scoring",         detail: "Mammouth computes confidence scores",                 delay: 44000 },
 ] as const;
 
 type StepKey = typeof PIPELINE_STEPS[number]["key"];
 type StepState = "pending" | "running" | "done";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+interface PhoneDiscoveryResult {
+  number: string;
+  source: string;
+  source_url?: string;
+  method: string;
+  confidence: "high" | "medium" | "low";
+}
 
 interface ReconstructionResult {
   detected_location?: {
@@ -70,6 +80,8 @@ interface ReconstructionResult {
     entity_confidence: number;
   };
   pipeline_steps?: Record<string, string>;
+  phone_discovery_results?: PhoneDiscoveryResult[];
+  best_phone?: string;
 }
 
 interface VisualLead {
@@ -213,6 +225,10 @@ export default function VisualPage() {
   const recon = result?.reconstruction;
   const lead = result?.lead;
   const scores = recon?.confidence_scores;
+  const phoneResults = recon?.phone_discovery_results ?? [];
+  const bestPhoneResult = phoneResults[0];
+  const displayPhone = recon?.best_phone ?? lead?.phone;
+  const noWebsite = lead && !lead.website_url;
 
   const scoreLabelColor: Record<string, string> = {
     Hot: "bg-red-500/15 text-red-600 border-red-500/30",
@@ -377,6 +393,12 @@ export default function VisualPage() {
                     Direct booking
                   </Badge>
                 )}
+                {noWebsite && (
+                  <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30 gap-1">
+                    <Star className="h-3 w-3" />
+                    No website — high priority
+                  </Badge>
+                )}
               </div>
               {recon?.detected_location && (
                 <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -418,10 +440,27 @@ export default function VisualPage() {
                 <span className="truncate">{lead.email}</span>
               </div>
             )}
-            {lead.phone && (
+            {displayPhone && (
               <div className="flex items-center gap-2 text-sm">
                 <Phone className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                <span>{lead.phone}</span>
+                <span className="font-medium">{displayPhone}</span>
+                {bestPhoneResult && (
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                    bestPhoneResult.confidence === "high"
+                      ? "bg-emerald-500/10 text-emerald-600"
+                      : bestPhoneResult.confidence === "medium"
+                      ? "bg-amber-500/10 text-amber-600"
+                      : "bg-muted text-muted-foreground"
+                  }`}>
+                    {bestPhoneResult.source}
+                  </span>
+                )}
+              </div>
+            )}
+            {!displayPhone && phoneResults.length === 0 && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground/50">
+                <Phone className="h-3.5 w-3.5 flex-shrink-0" />
+                <span>No phone found</span>
               </div>
             )}
             {recon?.operator?.siret && (

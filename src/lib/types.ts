@@ -431,6 +431,14 @@ export interface GeoReconstructionResult {
     entity_confidence: number;
   };
   pipeline_steps: Record<string, "completed" | "skipped" | "failed">;
+  phone_discovery_results: Array<{
+    number: string;
+    source: string;
+    source_url?: string;
+    method: string;
+    confidence: "high" | "medium" | "low";
+  }>;
+  best_phone?: string;
 }
 
 // ─── API response shapes ──────────────────────────────────────────────────────

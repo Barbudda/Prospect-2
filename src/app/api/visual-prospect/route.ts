@@ -18,9 +18,13 @@ function toNormalizedLead(
   country: string,
   scrapedTitle?: string
 ): NormalizedLead {
-  const { operator, contact, detected_location, confidence_scores, direct_booking, parcel_info } = result;
+  const { operator, contact, detected_location, confidence_scores, direct_booking, parcel_info, phone_discovery_results } = result;
 
   const name = operator?.name ?? scrapedTitle ?? sourceUrl;
+  const bestPhone = result.best_phone || contact.phone || undefined;
+  const bestPhoneResult = phone_discovery_results?.[0];
+  const noWebsite = !operator?.website;
+
   const partial: Partial<NormalizedLead> = {
     primary_name: name,
     company_name: operator?.name,
@@ -32,7 +36,7 @@ function toNormalizedLead(
     address: detected_location?.address ?? operator?.address,
     website_url: operator?.website,
     email: contact.email || undefined,
-    phone: contact.phone || undefined,
+    phone: bestPhone,
     source_url: sourceUrl,
     source_type: "visual_reconstruction",
     quality_summary: [
@@ -46,6 +50,10 @@ function toNormalizedLead(
       parcel_info
         ? `Cadastral parcel: ${parcel_info.cadastral_reference}.`
         : null,
+      bestPhoneResult
+        ? `Phone found via ${bestPhoneResult.source} (${bestPhoneResult.confidence} confidence).`
+        : null,
+      noWebsite ? "No website — high opportunity target." : null,
     ]
       .filter(Boolean)
       .join(" "),

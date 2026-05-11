@@ -15,6 +15,7 @@ import * as Bing from "@/lib/providers/bing-visual-search";
 import * as StreetView from "@/lib/providers/google-streetview";
 import * as Cadastre from "@/lib/providers/ign-cadastre";
 import * as Pappers from "@/lib/providers/pappers";
+import { huntPhone, getPlacePhone, type PhoneResult } from "@/lib/engines/phone-hunter";
 import { validatePublicUrl } from "@/lib/utils/ssrf";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -44,7 +45,8 @@ interface PipelineState {
 
   // Step 5 output
   nearbyPlaces?: Array<{ name: string; address?: string; place_id?: string; website?: string }>;
-  matchedPlace?: { name: string; address?: string; website?: string; confidence: number };
+  matchedPlace?: { name: string; address?: string; place_id?: string; website?: string; confidence: number };
+  matchedPlacePhone?: string;
 
   // Step 6 output
   parcel?: import("@/lib/types").CadastralParcel;
@@ -55,6 +57,9 @@ interface PipelineState {
 
   // Step 8 output
   contact?: { email?: string; phone?: string };
+
+  // Step 8.5 output — phone hunter
+  phoneResults?: PhoneResult[];
 
   // Step 9 output
   directBooking?: boolean;
@@ -329,13 +334,13 @@ Respond with JSON: {
     );
 
     if (match?.best_match) {
-      // Fetch Place Details to get the website (not available in Nearby Search)
+      // Fetch Place Details to get website + phone (not in Nearby Search)
       let website: string | undefined;
       if (match.best_match.place_id && mapsKey) {
         try {
           const detailsParams = new URLSearchParams({
             place_id: match.best_match.place_id,
-            fields: "website",
+            fields: "website,formatted_phone_number,international_phone_number",
             key: mapsKey,
           });
           const detailsRes = await fetch(
@@ -343,11 +348,21 @@ Respond with JSON: {
             { signal: AbortSignal.timeout(8_000) }
           );
           if (detailsRes.ok) {
-            const details = await detailsRes.json() as { result?: { website?: string } };
+            const details = await detailsRes.json() as {
+              result?: {
+                website?: string;
+                formatted_phone_number?: string;
+                international_phone_number?: string;
+              };
+            };
             website = details.result?.website;
+            const phone =
+              details.result?.formatted_phone_number ??
+              details.result?.international_phone_number;
+            if (phone) state.matchedPlacePhone = phone;
           }
         } catch {
-          // non-fatal — proceed without website
+          // non-fatal — proceed without website/phone
         }
       }
 
@@ -561,6 +576,60 @@ async function step8ContactEnrichment(state: PipelineState): Promise<void> {
   }
 }
 
+// ─── Step 8.5: Phone Hunter ───────────────────────────────────────────────────
+
+async function step8_5PhoneHunter(state: PipelineState): Promise<void> {
+  const { city, listing_text } = state.input;
+
+  // If Google Maps already gave us a phone in step 5, promote it immediately
+  if (state.matchedPlacePhone) {
+    state.phoneResults = [{
+      number: state.matchedPlacePhone,
+      source: "Google Maps",
+      method: "google_maps",
+      confidence: "high",
+    }];
+    if (!state.contact) state.contact = {};
+    state.contact.phone ??= state.matchedPlacePhone;
+    mark(state, "phone_hunter", "completed");
+    return;
+  }
+
+  const hostMatch = listing_text.match(/(?:hosted|animé|géré) by ([^,.\n<]+)/i);
+  const hostName = hostMatch?.[1]?.trim();
+
+  const operatorName = state.operator?.name;
+  const address = state.address ?? state.operator?.address;
+  const placeId = state.matchedPlace?.place_id;
+  const siret = state.operator?.siret;
+  const hasWebsite = Boolean(state.operator?.website ?? state.matchedPlace?.website);
+
+  try {
+    const phones = await huntPhone({
+      operator_name: operatorName,
+      host_name: hostName,
+      address,
+      city,
+      place_id: placeId,
+      siret,
+      has_website: hasWebsite,
+    });
+
+    state.phoneResults = phones;
+
+    if (phones.length > 0) {
+      if (!state.contact) state.contact = {};
+      state.contact.phone ??= phones[0].number;
+      mark(state, "phone_hunter", "completed");
+    } else {
+      mark(state, "phone_hunter", "skipped");
+    }
+  } catch (err) {
+    console.error("[GeoRecon Step8.5]", err instanceof Error ? err.message : err);
+    mark(state, "phone_hunter", "failed");
+  }
+}
+
 // ─── Step 9: Direct Booking Detection ────────────────────────────────────────
 
 async function step9DirectBookingDetection(state: PipelineState): Promise<void> {
@@ -683,6 +752,9 @@ export async function runGeoReconstruction(
   // Step 8 depends on step 7 (operator)
   await step8ContactEnrichment(state);
 
+  // Step 8.5 — phone hunter (runs after address + operator known)
+  await step8_5PhoneHunter(state);
+
   // Step 9 depends on step 2 (direct booking sites) and step 7 (operator website)
   await step9DirectBookingDetection(state);
 
@@ -718,5 +790,7 @@ export async function runGeoReconstruction(
     direct_booking_url: state.directBookingUrl,
     confidence_scores: confidenceScores,
     pipeline_steps: state.steps,
+    phone_discovery_results: state.phoneResults ?? [],
+    best_phone: state.contact?.phone,
   };
 }
