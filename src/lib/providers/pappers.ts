@@ -49,7 +49,10 @@ export async function searchCompany(
   });
 
   if (!res.ok) {
-    throw new Error(`Pappers HTTP ${res.status}: ${await res.text().catch(() => "")}`);
+    const body = await res.text().catch(() => "");
+    // 401 = out of credits — treat as empty result, not an error
+    if (res.status === 401) return [];
+    throw new Error(`Pappers HTTP ${res.status}: ${body}`);
   }
 
   const data = await res.json() as {

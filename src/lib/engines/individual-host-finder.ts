@@ -16,10 +16,30 @@ interface ParsedListing {
   propertyType: string | null;
 }
 
+// Fix double UTF-8 encoding that appears when bytes are misread as Latin-1
+function fixEncoding(text: string): string {
+  try {
+    const bytes = new Uint8Array(text.split("").map((c) => c.charCodeAt(0) & 0xff));
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return decoded;
+  } catch {
+    return text;
+  }
+}
+
 function parseAirbnbSnippet(snippet: string): ParsedListing {
   // Snippets look like: "Marie · Superhôte · 4.97 (87 avis) · Appartement entier à Paris"
   const parts = snippet.split(/\s*·\s*/).map((s) => s.trim()).filter(Boolean);
-  const hostName = parts[0] ?? null;
+  const candidate = parts[0] ?? null;
+  // Only treat as a host name if it's short enough and looks like a personal name
+  // (no full sentences, no periods mid-text, length 2-40, not all caps words)
+  const looksLikeName =
+    candidate !== null &&
+    candidate.length >= 2 &&
+    candidate.length <= 40 &&
+    !/[.,;:!?]/.test(candidate) &&
+    !/\b(location|appartement|villa|maison|studio|chalet|room|stay|prime|perfect|spacious|luxe|cozy)\b/i.test(candidate);
+  const hostName = looksLikeName ? candidate : null;
   const isSuperhost = /superhôte|superhost/i.test(snippet);
   const reviewMatch = snippet.match(/\((\d+)\s*(?:avis|reviews?)\)/i);
   const reviewCount = reviewMatch ? parseInt(reviewMatch[1], 10) : null;
@@ -34,7 +54,10 @@ function parseAirbnbSnippet(snippet: string): ParsedListing {
 
 function extractListingTitle(title: string): string {
   // "Appartement de charme au cœur de Biarritz - Biarritz - Airbnb"
-  return title.replace(/[\s\-–|]+(?:airbnb|abritel|vrbo|booking\.com)\s*$/i, "").trim();
+  const cleaned = title.replace(/[\s\-–|]+(?:airbnb|abritel|vrbo|booking\.com)\s*$/i, "").trim();
+  // Extract the short property name before the first em-dash or long separator
+  const shortMatch = cleaned.match(/^([^–—]{4,60})\s*[–—]/);
+  return shortMatch ? shortMatch[1].trim() : cleaned;
 }
 
 // ─── SerpAPI search ───────────────────────────────────────────────────────────
@@ -67,8 +90,8 @@ async function serpSearch(
     };
     return (data.organic_results ?? []).map((r) => ({
       url: r.link ?? "",
-      title: r.title ?? "",
-      snippet: r.snippet ?? "",
+      title: fixEncoding(r.title ?? ""),
+      snippet: fixEncoding(r.snippet ?? ""),
     }));
   } catch {
     return [];

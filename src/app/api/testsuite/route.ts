@@ -207,5 +207,17 @@ export async function POST(req: NextRequest) {
     }
   } catch (e) { results.pappers_ping = { error: String(e) }; }
 
+  // ── 12. Fix stuck runs ───────────────────────────────────────────────────────
+  try {
+    const stuckThreshold = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const { data: fixed, error } = await supabase
+      .from("search_runs")
+      .update({ status: "failed", error_message: "Run timed out — marked failed by health check" })
+      .in("status", ["running", "reconstructing", "queued"])
+      .lt("created_at", stuckThreshold)
+      .select("id, city");
+    results.fix_stuck_runs = { fixed: fixed?.length ?? 0, ids: fixed?.map((r) => `${r.city} (${r.id})`), error: error?.message ?? null };
+  } catch (e) { results.fix_stuck_runs = { error: String(e) }; }
+
   return NextResponse.json(results, { status: 200 });
 }
