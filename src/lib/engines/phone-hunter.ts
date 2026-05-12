@@ -31,6 +31,10 @@ export interface PhoneHunterInput {
   place_id?: string;
   siret?: string;
   has_website: boolean;
+  // GPS coordinates from geo-reconstruction — unlock address-based searches
+  latitude?: number;
+  longitude?: number;
+  postal_code?: string;
 }
 
 // ─── Phone extraction ─────────────────────────────────────────────────────────
@@ -255,6 +259,50 @@ async function scanOTAPlatforms(
   return results;
 }
 
+// ─── Method 2b: SIRENE GPS search (auto-entrepreneurs near the property) ─────
+// Auto-entrepreneurs renting on Airbnb legally register with NAF 5520Z at their
+// HOME address = the rental property. GPS + NAF finds them even without a name.
+
+async function searchSIRENEByGPS(lat: number, lon: number): Promise<PhoneResult[]> {
+  const NAF_CODES = ["5520Z", "6820A"]; // STR + residential rental
+  const results: PhoneResult[] = [];
+
+  for (const code_naf of NAF_CODES) {
+    try {
+      const params = new URLSearchParams({
+        lat: lat.toFixed(6),
+        lon: lon.toFixed(6),
+        radius: "0.3", // 300m
+        code_naf,
+        per_page: "5",
+      });
+      const res = await fetch(
+        `https://recherche-entreprises.api.gouv.fr/near_point?${params}`,
+        { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8_000) }
+      );
+      if (!res.ok) continue;
+
+      const data = await res.json() as { results?: EntrepriseResult[] };
+      for (const e of data.results ?? []) {
+        const phone = e.siege?.telephone;
+        if (phone) {
+          results.push({
+            number: normalizePhone(phone),
+            source: `SIRENE GPS — ${e.nom_complet ?? code_naf}`,
+            method: "sirene_gps",
+            confidence: "high",
+          });
+        }
+      }
+      await sleep(200);
+    } catch {
+      // per NAF code — non-fatal
+    }
+  }
+
+  return results;
+}
+
 // ─── Method 4: Pages Jaunes / Pages Blanches (SerpAPI snippet extraction) ────
 
 async function searchPagesDirectory(
@@ -264,12 +312,15 @@ async function searchPagesDirectory(
 ): Promise<PhoneResult[]> {
   if (!process.env.SERPAPI_API_KEY) return [];
 
-  const site = individual ? "pagesblanche.fr" : "pagesjaunes.fr";
+  // Pages Blanches is under pagesjaunes.fr — pagesblanche.fr does not exist
   const source = individual ? "Pages Blanches" : "Pages Jaunes";
   const method = individual ? "pages_blanches" : "pages_jaunes";
+  const query = individual
+    ? `"${name}" "${city}" site:pagesjaunes.fr pagesblanches`
+    : `site:pagesjaunes.fr "${name}" "${city}"`;
 
   try {
-    const results = await serpSearch(`site:${site} "${name}" "${city}"`);
+    const results = await serpSearch(query);
     const phones: PhoneResult[] = [];
     for (const r of results) {
       for (const phone of extractPhones(`${r.snippet} ${r.title}`)) {
@@ -286,6 +337,42 @@ async function searchPagesDirectory(
   } catch {
     return [];
   }
+}
+
+// ─── Method 4b: Pages Blanches by address (finds residents at the property) ──
+// If we have the physical address from IGN Cadastre + BAN reverse geocode,
+// we can find whoever is listed at that address — even non-business individuals.
+
+async function searchPersonByAddress(
+  address: string,
+  city: string,
+  postal_code?: string
+): Promise<PhoneResult[]> {
+  if (!process.env.SERPAPI_API_KEY || !address) return [];
+
+  const streetPart = address.split(",")[0]?.trim() ?? address;
+  const location = [postal_code, city].filter(Boolean).join(" ");
+
+  const results: PhoneResult[] = [];
+  try {
+    const serpResults = await serpSearch(
+      `"${streetPart}" "${location}" site:pagesjaunes.fr`
+    );
+    for (const r of serpResults) {
+      for (const phone of extractPhones(`${r.snippet} ${r.title}`)) {
+        results.push({
+          number: phone,
+          source: "Pages Blanches (adresse)",
+          source_url: r.url,
+          method: "pages_blanches_address",
+          confidence: "medium",
+        });
+      }
+    }
+  } catch {
+    // non-fatal
+  }
+  return results;
 }
 
 // ─── Method 5: Direct web search + fetch ─────────────────────────────────────
@@ -391,6 +478,9 @@ export async function huntPhone(input: PhoneHunterInput): Promise<PhoneResult[]>
     place_id,
     siret,
     has_website,
+    latitude,
+    longitude,
+    postal_code,
   } = input;
 
   const allResults: PhoneResult[] = [];
@@ -415,9 +505,8 @@ export async function huntPhone(input: PhoneHunterInput): Promise<PhoneResult[]>
 
   const searchName = operator_name ?? host_name ?? city;
 
-  // Method 2: French company registry (free, no key, great for registered operators)
-  // Run regardless of website presence
-  const postcode = address?.match(/\b\d{5}\b/)?.[0];
+  // Method 2: French company registry by name (great for registered operators)
+  const postcode = postal_code ?? address?.match(/\b\d{5}\b/)?.[0];
   if (searchName !== city) {
     add(await searchEntreprises(searchName + " " + city, postcode));
     await sleep(300);
@@ -427,10 +516,16 @@ export async function huntPhone(input: PhoneHunterInput): Promise<PhoneResult[]>
     await sleep(300);
   }
 
+  // Method 2b: SIRENE GPS search — finds auto-entrepreneurs at the property address
+  // Many Airbnb hosts register as auto-entrepreneurs with their home = rental address
+  if (latitude !== undefined && longitude !== undefined) {
+    add(await searchSIRENEByGPS(latitude, longitude));
+    await sleep(300);
+  }
+
   if (allResults.length > 0) return allResults;
 
-  // Methods 3-5: Only run if no phone yet or no website (= high priority target)
-  // No-website hosts → run ALL methods (they're more likely to be reachable by phone)
+  // Methods 3-5: Run when no phone found yet, prioritising no-website hosts
 
   // Method 3: Cross-platform OTA scan
   if (searchName !== city) {
@@ -439,18 +534,24 @@ export async function huntPhone(input: PhoneHunterInput): Promise<PhoneResult[]>
   }
 
   if (!has_website || allResults.length === 0) {
-    // Method 4a: Pages Jaunes (professional)
+    // Method 4a: Pages Jaunes (professional listings)
     if (operator_name) {
       add(await searchPagesDirectory(operator_name, city, false));
       await sleep(400);
     }
-    // Method 4b: Pages Blanches (individual — specifically for hosts without businesses)
+    // Method 4b: Pages Blanches by name (personal directory for individuals)
     if (host_name && !has_website) {
       add(await searchPagesDirectory(host_name, city, true));
       await sleep(400);
     }
+    // Method 4c: Pages Blanches by address — finds residents at the property
+    // Works for people with NO business registration at all
+    if (address && (postal_code ?? postcode)) {
+      add(await searchPersonByAddress(address, city, postal_code ?? postcode));
+      await sleep(400);
+    }
 
-    // Method 5a: Address search (very effective for individual owners)
+    // Method 5a: Leboncoin/OTA address search (individual owners post here)
     if (address) {
       add(await searchByAddress(address, city));
       await sleep(400);

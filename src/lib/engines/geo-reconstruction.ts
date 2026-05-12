@@ -427,7 +427,7 @@ async function step7EntityEnrichment(state: PipelineState): Promise<void> {
   try {
     const candidateSources: Array<{ name?: string; siren?: string; siret?: string; website?: string; activity?: string; address?: string }> = [];
 
-    // Pappers company search
+    // Pappers company search by candidate name
     if (Pappers.isConfigured() && candidateName) {
       try {
         const companies = await Pappers.searchCompany(
@@ -446,6 +446,50 @@ async function step7EntityEnrichment(state: PipelineState): Promise<void> {
         }
       } catch {
         // non-fatal
+      }
+    }
+
+    // SIRENE GPS search — finds auto-entrepreneurs registered at the property address.
+    // Individual Airbnb hosts earning >23k€/year must register as auto-entrepreneurs
+    // with their home address = the rental property. NAF 5520Z = short-term rental.
+    if (state.bestHypothesis) {
+      const { latitude, longitude } = state.bestHypothesis;
+      for (const code_naf of ["5520Z", "6820A"]) {
+        try {
+          const gpsParams = new URLSearchParams({
+            lat: latitude.toFixed(6),
+            lon: longitude.toFixed(6),
+            radius: "0.3",
+            code_naf,
+            per_page: "5",
+          });
+          const gpsRes = await fetch(
+            `https://recherche-entreprises.api.gouv.fr/near_point?${gpsParams}`,
+            { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8_000) }
+          );
+          if (gpsRes.ok) {
+            const gpsData = await gpsRes.json() as {
+              results?: Array<{
+                nom_complet?: string;
+                siege?: { siret?: string; adresse?: string; telephone?: string };
+                activite_principale?: string;
+              }>;
+            };
+            for (const e of gpsData.results ?? []) {
+              if (e.nom_complet) {
+                candidateSources.push({
+                  name: e.nom_complet,
+                  siret: e.siege?.siret,
+                  activity: e.activite_principale,
+                  address: e.siege?.adresse,
+                });
+              }
+            }
+          }
+          await sleep(200);
+        } catch {
+          // non-fatal per NAF code
+        }
       }
     }
 
@@ -507,7 +551,8 @@ Candidates:
 ${JSON.stringify(candidateSources.slice(0, 10))}
 
 Select the most likely operator. Confidence 0-100.
-Exclude: individual hosts (private persons), unrelated businesses.
+Include auto-entrepreneurs and individuals registered with codes 5520Z (short-term rental) or 6820A (rental).
+Exclude only clearly unrelated businesses (restaurant, shop, etc.).
 
 Respond with JSON: {
   "operator": { "name": string, "website": string, "activity": string, "siret": string, "siren": string, "address": string, "confidence": number },
@@ -604,6 +649,9 @@ async function step8_5PhoneHunter(state: PipelineState): Promise<void> {
   const siret = state.operator?.siret;
   const hasWebsite = Boolean(state.operator?.website ?? state.matchedPlace?.website);
 
+  // Extract postal code from BAN reverse geocode address (e.g. "06000" from "12 rue Victor Hugo 06000 Nice")
+  const postalCode = state.address?.match(/\b(\d{5})\b/)?.[1];
+
   try {
     const phones = await huntPhone({
       operator_name: operatorName,
@@ -613,6 +661,9 @@ async function step8_5PhoneHunter(state: PipelineState): Promise<void> {
       place_id: placeId,
       siret,
       has_website: hasWebsite,
+      latitude: state.bestHypothesis?.latitude,
+      longitude: state.bestHypothesis?.longitude,
+      postal_code: postalCode,
     });
 
     state.phoneResults = phones;
