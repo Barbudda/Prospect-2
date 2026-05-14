@@ -80,6 +80,9 @@ function toNormalizedLead(
       confidence_scores,
       pipeline_steps: result.pipeline_steps,
       direct_booking_url: result.direct_booking_url,
+      // Stored so /api/leads/[id]/retry-phone can reuse mailbox surnames,
+      // permit-panel beneficiary names, and property-name plaques
+      exterior_signals: result.exterior_signals,
     },
   };
 

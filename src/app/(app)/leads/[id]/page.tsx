@@ -17,7 +17,31 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { Phone, Loader2, RefreshCw } from "lucide-react";
 import type { OutreachStatus, ScoreLabel } from "@/lib/types";
+
+interface PhoneCandidate {
+  number: string;
+  source: string;
+  source_url?: string;
+  method: string;
+  confidence: "high" | "medium" | "low";
+  validation_score?: number;
+  validation_signals?: string[];
+}
+
+interface RetryResponse {
+  phones: PhoneCandidate[];
+  updated: boolean;
+  best_phone: string | null;
+  best_validation_score: number;
+  info?: {
+    used_address: string | null;
+    used_postal: string | null;
+    used_gps: { lat: number; lon: number } | null;
+    used_exterior_signals: { surnames: number; property_names: number; permit: boolean } | null;
+  };
+}
 
 interface LeadDetail {
   id: string;
@@ -171,6 +195,35 @@ export default function LeadDetailPage() {
   const [showRaw, setShowRaw] = useState(false);
   const [generatingOutreach, setGeneratingOutreach] = useState(false);
   const [outreachEmail, setOutreachEmail] = useState<string | null>(null);
+  const [retryingPhone, setRetryingPhone] = useState(false);
+  const [retryResult, setRetryResult] = useState<RetryResponse | null>(null);
+
+  async function retryPhoneSearch() {
+    setRetryingPhone(true);
+    setRetryResult(null);
+    try {
+      const res = await fetch(`/api/leads/${id}/retry-phone`, { method: "POST" });
+      const data = (await res.json()) as RetryResponse & { error?: string };
+      if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`);
+      setRetryResult(data);
+
+      if (data.updated && data.best_phone) {
+        toast.success(`Phone saved: ${data.best_phone}`);
+        // Update local lead so the new phone appears
+        setLead((prev) => (prev ? { ...prev, phone: data.best_phone! } : prev));
+      } else if (data.phones.length > 0) {
+        toast.warning(
+          `${data.phones.length} candidate(s) found — top score ${data.best_validation_score}/100. None auto-saved.`
+        );
+      } else {
+        toast.info("No phone candidates found.");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Retry failed");
+    } finally {
+      setRetryingPhone(false);
+    }
+  }
 
   useEffect(() => {
     fetch(`/api/leads/${id}`)
@@ -272,7 +325,90 @@ export default function LeadDetailPage() {
           ) : (
             <div className="py-2 text-sm text-muted-foreground">No email found.</div>
           )}
-          {lead.phone && <ContactItem label="Phone" value={lead.phone} href={`tel:${lead.phone}`} />}
+          {lead.phone ? (
+            <ContactItem label="Phone" value={lead.phone} href={`tel:${lead.phone}`} />
+          ) : (
+            <div className="py-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm text-muted-foreground">No phone found.</div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={retryPhoneSearch}
+                  disabled={retryingPhone}
+                  className="gap-2 shrink-0"
+                >
+                  {retryingPhone ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Searching all sources…
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      Retry phone search
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {retryResult && retryResult.phones.length > 0 && (
+                <div className="space-y-2 rounded-lg border border-border/40 bg-muted/20 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Candidates ({retryResult.phones.length})
+                    </p>
+                    {!retryResult.updated && (
+                      <span className="text-[10px] text-amber-600">
+                        Not auto-saved — confidence below threshold
+                      </span>
+                    )}
+                  </div>
+                  {retryResult.phones.slice(0, 8).map((p, i) => (
+                    <div
+                      key={`${p.number}-${i}`}
+                      className="flex items-center justify-between gap-3 text-xs p-2 rounded bg-background/60 border border-border/30"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-3 w-3 text-muted-foreground shrink-0" />
+                          <a
+                            href={`tel:${p.number}`}
+                            className="font-mono font-semibold tabular-nums hover:underline"
+                          >
+                            {p.number}
+                          </a>
+                        </div>
+                        <div className="text-muted-foreground mt-0.5 truncate">
+                          {p.source}
+                          {p.validation_signals?.length ? ` · ${p.validation_signals.join(", ")}` : ""}
+                        </div>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={`shrink-0 text-[10px] ${
+                          (p.validation_score ?? 0) >= 60
+                            ? "border-emerald-500/40 text-emerald-600"
+                            : (p.validation_score ?? 0) >= 30
+                            ? "border-amber-500/40 text-amber-600"
+                            : "border-border text-muted-foreground"
+                        }`}
+                      >
+                        {p.validation_score ?? 0}/100
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {retryResult && retryResult.phones.length === 0 && (
+                <div className="rounded-lg border border-border/40 bg-muted/20 p-3 text-xs text-muted-foreground">
+                  No candidate phones could be discovered from the stored signals
+                  {retryResult.info?.used_address ? ` (used address: ${retryResult.info.used_address})` : ""}.
+                </div>
+              )}
+            </div>
+          )}
           {lead.whatsapp_url && <ContactItem label="WhatsApp" value={lead.whatsapp_url} href={lead.whatsapp_url} />}
           {lead.contact_form_url && (
             <ContactItem label="Contact Form" value={lead.contact_form_url} href={lead.contact_form_url} />
