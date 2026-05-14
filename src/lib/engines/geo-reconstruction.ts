@@ -16,7 +16,9 @@ import * as StreetView from "@/lib/providers/google-streetview";
 import * as Cadastre from "@/lib/providers/ign-cadastre";
 import * as Pappers from "@/lib/providers/pappers";
 import { huntPhone, type PhoneResult } from "@/lib/engines/phone-hunter";
+import { mineExteriorSignals, type ExteriorSignals } from "@/lib/engines/exterior-text-miner";
 import { validatePublicUrl } from "@/lib/utils/ssrf";
+import type { VisionAnnotation } from "@/lib/providers/google-vision";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -29,7 +31,11 @@ interface PipelineState {
 
   // Step 1 output
   visionSummary?: string;
+  visionAnnotations?: VisionAnnotation[];
   propertySemanticProfile?: string;
+
+  // Step 1.5 — exterior signals mined from OCR text
+  exteriorSignals?: ExteriorSignals;
 
   // Step 2 output
   externalListings?: Array<{ url: string; name: string }>;
@@ -85,6 +91,7 @@ async function step1ImageUnderstanding(state: PipelineState): Promise<void> {
     let visionSummary = "";
     if (Vision.isConfigured()) {
       const annotations = await Vision.annotateImages(safeImages);
+      state.visionAnnotations = annotations;
       visionSummary = Vision.summarizeAnnotations(annotations);
     }
     state.visionSummary = visionSummary;
@@ -109,6 +116,36 @@ Respond in English, be precise and factual.`
   } catch (err) {
     console.error("[GeoRecon Step1]", err instanceof Error ? err.message : err);
     mark(state, "image_understanding", "failed");
+  }
+}
+
+// ─── Step 1.5: Exterior Text Mining ──────────────────────────────────────────
+// Mines surnames, property-name plaques, visible phones, permit-panel owner
+// names, tourism classifications from the OCR text already captured in Step 1.
+// These feed back into Phone Hunter as new identity signals.
+
+async function step1_5ExteriorTextMining(state: PipelineState): Promise<void> {
+  const annotations = state.visionAnnotations;
+  if (!annotations?.length) {
+    mark(state, "exterior_text_mining", "skipped");
+    return;
+  }
+
+  try {
+    const signals = await mineExteriorSignals(annotations);
+    state.exteriorSignals = signals;
+
+    const found =
+      signals.surnames.length +
+      signals.property_names.length +
+      signals.visible_phones.length +
+      (signals.permit_info ? 1 : 0) +
+      (signals.tourism_classification ? 1 : 0);
+
+    mark(state, "exterior_text_mining", found > 0 ? "completed" : "skipped");
+  } catch (err) {
+    console.error("[GeoRecon Step1.5]", err instanceof Error ? err.message : err);
+    mark(state, "exterior_text_mining", "failed");
   }
 }
 
@@ -664,6 +701,7 @@ async function step8_5PhoneHunter(state: PipelineState): Promise<void> {
       latitude: state.bestHypothesis?.latitude,
       longitude: state.bestHypothesis?.longitude,
       postal_code: postalCode,
+      exterior_signals: state.exteriorSignals,
     });
 
     state.phoneResults = phones;
@@ -785,6 +823,10 @@ export async function runGeoReconstruction(
     step2ReverseImageSearch(state),
   ]);
 
+  // Step 1.5 — mine identity signals from OCR text captured by Vision in Step 1
+  // (surnames on mailboxes, property-name plaques, permit panels…)
+  await step1_5ExteriorTextMining(state);
+
   // Step 3 depends on step 1 output
   await step3GeoHypothesis(state);
 
@@ -831,6 +873,19 @@ export async function runGeoReconstruction(
       }
     : null;
 
+  // Strip raw_ocr_text from the public payload — keep it server-side only
+  const exteriorPublic = state.exteriorSignals
+    ? {
+        surnames: state.exteriorSignals.surnames,
+        property_names: state.exteriorSignals.property_names,
+        visible_phones: state.exteriorSignals.visible_phones,
+        business_names: state.exteriorSignals.business_names,
+        street_addresses: state.exteriorSignals.street_addresses,
+        permit_info: state.exteriorSignals.permit_info,
+        tourism_classification: state.exteriorSignals.tourism_classification,
+      }
+    : undefined;
+
   return {
     detected_location: detectedLocation,
     property_match: propertyMatch,
@@ -843,5 +898,6 @@ export async function runGeoReconstruction(
     pipeline_steps: state.steps,
     phone_discovery_results: state.phoneResults ?? [],
     best_phone: state.contact?.phone,
+    exterior_signals: exteriorPublic,
   };
 }

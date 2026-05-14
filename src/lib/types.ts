@@ -437,8 +437,20 @@ export interface GeoReconstructionResult {
     source_url?: string;
     method: string;
     confidence: "high" | "medium" | "low";
+    validation_score?: number;
+    validation_signals?: string[];
   }>;
   best_phone?: string;
+  // Identity signals mined from exterior photos (Step 1.5)
+  exterior_signals?: {
+    surnames: string[];
+    property_names: string[];
+    visible_phones: string[];
+    business_names: string[];
+    street_addresses: string[];
+    permit_info?: { beneficiary_name?: string; permit_number?: string };
+    tourism_classification?: { type: string; reference?: string; stars_or_epis?: number };
+  };
 }
 
 // ─── API response shapes ──────────────────────────────────────────────────────

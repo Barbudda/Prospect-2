@@ -14,6 +14,7 @@
 // and more likely to need services like an AI concierge. Their leads get a score boost.
 
 import { validateFrenchPhone } from "@/lib/utils/contact-validator";
+import type { ExteriorSignals } from "@/lib/engines/exterior-text-miner";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -25,6 +26,10 @@ export interface PhoneResult {
   source_url?: string;
   method: string;
   confidence: "high" | "medium" | "low";
+  // Cross-validation against owner identity (0-100). Higher = more signals
+  // (surname match, property-name match, regional phone code, multiple sources).
+  validation_score?: number;
+  validation_signals?: string[];
 }
 
 export interface PhoneHunterInput {
@@ -40,6 +45,8 @@ export interface PhoneHunterInput {
   latitude?: number;
   longitude?: number;
   postal_code?: string;
+  // Exterior signals mined from listing photos (Vision OCR → Mammouth classification)
+  exterior_signals?: ExteriorSignals;
 }
 
 // ─── Phone extraction ─────────────────────────────────────────────────────────
@@ -371,6 +378,194 @@ async function webSearchPhone(
   return results;
 }
 
+// ─── Method 6: Exterior surname search ───────────────────────────────────────
+// Uses surname captured from a mailbox/doorbell/permit panel + the verified
+// property address to search for the resident's number in public web results
+// (forums, classifieds, local news mentioning the address). Pages Blanches is
+// not queried directly (ToS-forbidden) but its content sometimes leaks into
+// Google snippets and gets picked up here.
+
+async function searchByExteriorSurname(
+  surname: string,
+  city: string,
+  postalCode?: string
+): Promise<PhoneResult[]> {
+  if (!process.env.SERPAPI_API_KEY || !surname || surname.length < 2) return [];
+
+  const results: PhoneResult[] = [];
+  const cleanSurname = surname.trim().replace(/[^a-zA-ZÀ-ÿ\s\-']/g, "");
+  const location = postalCode ? `${city} ${postalCode}` : city;
+
+  try {
+    const serpResults = await serpSearch(
+      `"${cleanSurname}" "${location}" (téléphone OR tél OR mobile OR contact)`
+    );
+    for (const r of serpResults) {
+      // Only keep phones from pages that actually mention the surname
+      const pageText = `${r.title} ${r.snippet}`;
+      if (!new RegExp(cleanSurname, "i").test(pageText)) continue;
+
+      for (const phone of extractPhones(pageText)) {
+        results.push({
+          number: phone,
+          source: `Web search — ${cleanSurname}`,
+          source_url: r.url,
+          method: "exterior_surname",
+          confidence: "medium",
+        });
+      }
+    }
+  } catch {
+    // non-fatal
+  }
+  return results;
+}
+
+// ─── Method 7: Property-name search ──────────────────────────────────────────
+// Property name plaques like "Villa Les Hortensias" are SEO-friendly and often
+// surface on regional tourism sites, gîte aggregators, owner's own social media.
+
+async function searchByPropertyName(
+  propertyName: string,
+  city: string
+): Promise<PhoneResult[]> {
+  if (!process.env.SERPAPI_API_KEY || !propertyName) return [];
+
+  const results: PhoneResult[] = [];
+  try {
+    const serpResults = await serpSearch(
+      `"${propertyName}" "${city}" (contact OR téléphone OR réserver)`
+    );
+    for (const r of serpResults) {
+      for (const phone of extractPhones(`${r.snippet} ${r.title}`)) {
+        results.push({
+          number: phone,
+          source: `Property name — ${propertyName}`,
+          source_url: r.url,
+          method: "property_name",
+          confidence: "medium",
+        });
+      }
+    }
+  } catch {
+    // non-fatal
+  }
+  return results;
+}
+
+// ─── Cross-validation: score each candidate against owner identity signals ───
+// "From the house to the owner, from the owner to candidate phones, from
+//  candidate phones to THE phone" — this is the validation step.
+
+const POSTAL_TO_PHONE_ZONE: Record<number, string> = (() => {
+  const map: Record<number, string> = {};
+  // 01 — Île-de-France
+  [75, 77, 78, 91, 92, 93, 94, 95].forEach((d) => (map[d] = "01"));
+  // 02 — Nord-Ouest
+  [14, 22, 27, 28, 29, 35, 36, 37, 41, 44, 45, 49, 50, 53, 56, 61, 72, 76, 85].forEach(
+    (d) => (map[d] = "02")
+  );
+  // 03 — Nord-Est
+  [2, 8, 10, 18, 21, 25, 39, 51, 52, 54, 55, 57, 58, 59, 60, 62, 67, 68, 70, 71, 80, 88, 89, 90].forEach(
+    (d) => (map[d] = "03")
+  );
+  // 04 — Sud-Est
+  [1, 3, 4, 5, 6, 7, 13, 15, 26, 30, 34, 38, 42, 43, 48, 63, 66, 69, 73, 74, 83, 84].forEach(
+    (d) => (map[d] = "04")
+  );
+  // 05 — Sud-Ouest
+  [9, 11, 12, 16, 17, 19, 23, 24, 31, 32, 33, 40, 46, 47, 64, 65, 79, 81, 82, 86, 87].forEach(
+    (d) => (map[d] = "05")
+  );
+  return map;
+})();
+
+function expectedPhoneZoneForPostalCode(postal: string): string | null {
+  const dept = parseInt(postal.slice(0, 2), 10);
+  return Number.isFinite(dept) ? POSTAL_TO_PHONE_ZONE[dept] ?? null : null;
+}
+
+function crossValidatePhone(
+  phone: PhoneResult,
+  owner: {
+    surnames: string[];
+    property_names: string[];
+    operator_name?: string;
+    address?: string;
+    postal_code?: string;
+  },
+  occurrenceCount: number
+): PhoneResult {
+  let score = 0;
+  const signals: string[] = [];
+  const digits = phone.number.replace(/\s/g, "");
+  const haystack = (
+    (phone.source ?? "") + " " + (phone.source_url ?? "")
+  ).toLowerCase();
+
+  // Mobile = strong signal for an individual host
+  if (digits.startsWith("06") || digits.startsWith("07")) {
+    score += 25;
+    signals.push("mobile");
+  }
+
+  // Regional code matches expected zone for the postal code
+  if (owner.postal_code) {
+    const expected = expectedPhoneZoneForPostalCode(owner.postal_code);
+    if (expected && digits.startsWith(expected)) {
+      score += 20;
+      signals.push(`region:${expected}`);
+    } else if (expected && /^0[1-5]/.test(digits) && !digits.startsWith(expected)) {
+      // Wrong region — landline outside expected zone is a red flag
+      score -= 15;
+      signals.push("region_mismatch");
+    }
+  }
+
+  // The page hosting the phone mentions one of the owner's surnames
+  for (const surname of owner.surnames) {
+    if (surname && haystack.includes(surname.toLowerCase())) {
+      score += 30;
+      signals.push(`surname:${surname}`);
+      break;
+    }
+  }
+
+  // The page hosting the phone mentions the property name
+  for (const propName of owner.property_names) {
+    if (propName && haystack.includes(propName.toLowerCase())) {
+      score += 25;
+      signals.push("property_match");
+      break;
+    }
+  }
+
+  // The page mentions the operator's company name
+  if (
+    owner.operator_name &&
+    haystack.includes(owner.operator_name.toLowerCase())
+  ) {
+    score += 15;
+    signals.push("operator_match");
+  }
+
+  // Multiple independent sources surfaced the same number
+  if (occurrenceCount >= 2) {
+    score += Math.min(occurrenceCount * 10, 30);
+    signals.push(`cross_source:${occurrenceCount}`);
+  }
+
+  // Boost trust from intrinsic source confidence
+  if (phone.confidence === "high") score += 20;
+  else if (phone.confidence === "medium") score += 10;
+
+  return {
+    ...phone,
+    validation_score: Math.max(0, Math.min(100, score)),
+    validation_signals: signals,
+  };
+}
+
 // ─── Address search on Leboncoin (no-website owners post here) ───────────────
 
 async function searchByAddress(
@@ -418,16 +613,37 @@ export async function huntPhone(input: PhoneHunterInput): Promise<PhoneResult[]>
     latitude,
     longitude,
     postal_code,
+    exterior_signals,
   } = input;
 
   const allResults: PhoneResult[] = [];
+  const occurrences = new Map<string, number>(); // number → count across methods
   const seen = new Set<string>();
 
   function add(results: PhoneResult[]) {
     for (const r of results) {
+      occurrences.set(r.number, (occurrences.get(r.number) ?? 0) + 1);
       if (!seen.has(r.number)) {
         seen.add(r.number);
         allResults.push(r);
+      }
+    }
+  }
+
+  // Method 0: Phones directly captured by exterior OCR (signs, plaques)
+  // — highest confidence: they're physically printed on the property
+  if (exterior_signals?.visible_phones?.length) {
+    for (const rawPhone of exterior_signals.visible_phones) {
+      const validated = validateFrenchPhone(rawPhone);
+      if (validated.valid && validated.cleaned) {
+        add([
+          {
+            number: validated.cleaned,
+            source: "Visible on exterior signage (OCR)",
+            method: "exterior_visible",
+            confidence: "high",
+          },
+        ]);
       }
     }
   }
@@ -483,14 +699,59 @@ export async function huntPhone(input: PhoneHunterInput): Promise<PhoneResult[]>
     }
   }
 
-  // Sort: high confidence first, then mobile numbers first (06/07 = private individuals)
-  return allResults.sort((a, b) => {
-    const confScore = { high: 3, medium: 2, low: 1 };
-    const confDiff = confScore[b.confidence] - confScore[a.confidence];
-    if (confDiff !== 0) return confDiff;
-    // Mobile (06/07) first for individual hosts
-    const aIsMobile = a.number.replace(/\s/g, "").startsWith("06") || a.number.replace(/\s/g, "").startsWith("07");
-    const bIsMobile = b.number.replace(/\s/g, "").startsWith("06") || b.number.replace(/\s/g, "").startsWith("07");
+  // Method 6: Exterior surname search — surname from mailbox/permit + address
+  if (exterior_signals?.surnames?.length) {
+    for (const surname of exterior_signals.surnames.slice(0, 2)) {
+      add(await searchByExteriorSurname(surname, city, postal_code));
+      await sleep(400);
+    }
+  }
+
+  // Method 7: Property-name search — gate plaque name often appears online
+  if (exterior_signals?.property_names?.length) {
+    for (const name of exterior_signals.property_names.slice(0, 2)) {
+      add(await searchByPropertyName(name, city));
+      await sleep(400);
+    }
+  }
+
+  // Method 8: Permit panel — beneficiary's name is the legal property owner
+  const permitName = exterior_signals?.permit_info?.beneficiary_name;
+  if (permitName) {
+    add(await searchByExteriorSurname(permitName, city, postal_code));
+    await sleep(400);
+  }
+
+  // ── Cross-validation: score each candidate against owner identity ──────────
+  // "From the house to the owner, from the owner to candidate phones, from
+  //  candidate phones to THE phone" — owner signals validate each candidate.
+  const ownerForValidation = {
+    surnames: [
+      ...(exterior_signals?.surnames ?? []),
+      ...(exterior_signals?.permit_info?.beneficiary_name
+        ? [exterior_signals.permit_info.beneficiary_name]
+        : []),
+    ],
+    property_names: exterior_signals?.property_names ?? [],
+    operator_name,
+    address,
+    postal_code,
+  };
+
+  const validated = allResults.map((p) =>
+    crossValidatePhone(p, ownerForValidation, occurrences.get(p.number) ?? 1)
+  );
+
+  // Sort by validation_score (highest = most trustworthy), then by mobile-first
+  return validated.sort((a, b) => {
+    const scoreDiff = (b.validation_score ?? 0) - (a.validation_score ?? 0);
+    if (scoreDiff !== 0) return scoreDiff;
+    const aIsMobile =
+      a.number.replace(/\s/g, "").startsWith("06") ||
+      a.number.replace(/\s/g, "").startsWith("07");
+    const bIsMobile =
+      b.number.replace(/\s/g, "").startsWith("06") ||
+      b.number.replace(/\s/g, "").startsWith("07");
     return (bIsMobile ? 1 : 0) - (aIsMobile ? 1 : 0);
   });
 }
