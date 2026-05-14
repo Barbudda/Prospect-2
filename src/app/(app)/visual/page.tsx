@@ -40,7 +40,7 @@ const PIPELINE_STEPS = [
   { key: "cadastre",   label: "IGN Cadastre",           detail: "Identifying cadastral parcel",                         delay: 24000 },
   { key: "entity",     label: "Entity Resolution",      detail: "Pappers + web search → Mammouth ranking",             delay: 28000 },
   { key: "contact",    label: "Contact Enrichment",     detail: "Dropcontact professional lookup",                      delay: 33000 },
-  { key: "phone",      label: "Phone Hunter",           detail: "Searching registries, OTAs & Pages Jaunes for phone", delay: 37000 },
+  { key: "phone",      label: "Phone Hunter",           detail: "Searching SIRENE registry, OTAs & web for phone",      delay: 37000 },
   { key: "booking",    label: "Direct Booking Scan",    detail: "Detecting booking engine signals",                     delay: 41000 },
   { key: "scoring",    label: "Global Scoring",         detail: "Mammouth computes confidence scores",                  delay: 44000 },
 ] as const;

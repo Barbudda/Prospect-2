@@ -163,6 +163,14 @@ export function scoreLead(lead: Partial<NormalizedLead>): ScoreBreakdown {
   if (lead.website_url) {
     score += 8;
     reasons.push("+8: has website");
+  } else if (
+    (lead.phone || lead.whatsapp_url) &&
+    (lead.source_type === "visual_reconstruction" || lead.source_type === "individual_host")
+  ) {
+    // The product's bullseye: a reachable host with NO website.
+    // These leads are unreachable via any standard B2B database — premium value.
+    score += 25;
+    reasons.push("+25: no-website host with direct contact (exclusivity bullseye)");
   }
 
   const sourceCount = lead.sources?.length ?? 0;

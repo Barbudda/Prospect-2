@@ -15,7 +15,7 @@ import * as Bing from "@/lib/providers/bing-visual-search";
 import * as StreetView from "@/lib/providers/google-streetview";
 import * as Cadastre from "@/lib/providers/ign-cadastre";
 import * as Pappers from "@/lib/providers/pappers";
-import { huntPhone, getPlacePhone, type PhoneResult } from "@/lib/engines/phone-hunter";
+import { huntPhone, type PhoneResult } from "@/lib/engines/phone-hunter";
 import { validatePublicUrl } from "@/lib/utils/ssrf";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));

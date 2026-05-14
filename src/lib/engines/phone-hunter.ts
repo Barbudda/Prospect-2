@@ -3,9 +3,12 @@
 // Priority order (fastest / most reliable first):
 //   1. Google Maps Place Details  — phone on verified business listing
 //   2. Recherche Entreprises API  — French gov company registry, FREE, no key needed
-//   3. Cross-platform OTA scan    — same property on Abritel/Gîtes/Leboncoin (show phones)
-//   4. Pages Jaunes / Blanches    — SerpAPI snippet extraction
+//   3. SIRENE GPS                 — French gov registry by location (auto-entrepreneurs)
+//   4. Cross-platform OTA scan    — same property on Abritel/Gîtes/Leboncoin (host published)
 //   5. Direct web search          — phone pattern extraction from snippets + page fetch
+//
+// Pages Jaunes / Pages Blanches are intentionally NOT queried programmatically — their
+// ToS forbid automated/derivative use. End-users can still consult them manually.
 //
 // Hosts WITHOUT a website are flagged as priority targets — they are less contacted
 // and more likely to need services like an AI concierge. Their leads get a score boost.
@@ -65,7 +68,6 @@ function extractPhones(text: string): string[] {
 function bestConfidence(method: string): "high" | "medium" | "low" {
   if (method === "google_maps" || method === "recherche_entreprises") return "high";
   if (method === "abritel" || method === "gites_de_france" || method === "leboncoin") return "high";
-  if (method === "pages_jaunes") return "medium";
   return "low";
 }
 
@@ -303,77 +305,9 @@ async function searchSIRENEByGPS(lat: number, lon: number): Promise<PhoneResult[
   return results;
 }
 
-// ─── Method 4: Pages Jaunes / Pages Blanches (SerpAPI snippet extraction) ────
-
-async function searchPagesDirectory(
-  name: string,
-  city: string,
-  individual: boolean
-): Promise<PhoneResult[]> {
-  if (!process.env.SERPAPI_API_KEY) return [];
-
-  // Pages Blanches is under pagesjaunes.fr — pagesblanche.fr does not exist
-  const source = individual ? "Pages Blanches" : "Pages Jaunes";
-  const method = individual ? "pages_blanches" : "pages_jaunes";
-  const query = individual
-    ? `"${name}" "${city}" site:pagesjaunes.fr pagesblanches`
-    : `site:pagesjaunes.fr "${name}" "${city}"`;
-
-  try {
-    const results = await serpSearch(query);
-    const phones: PhoneResult[] = [];
-    for (const r of results) {
-      for (const phone of extractPhones(`${r.snippet} ${r.title}`)) {
-        phones.push({
-          number: phone,
-          source,
-          source_url: r.url,
-          method,
-          confidence: "medium",
-        });
-      }
-    }
-    return phones;
-  } catch {
-    return [];
-  }
-}
-
-// ─── Method 4b: Pages Blanches by address (finds residents at the property) ──
-// If we have the physical address from IGN Cadastre + BAN reverse geocode,
-// we can find whoever is listed at that address — even non-business individuals.
-
-async function searchPersonByAddress(
-  address: string,
-  city: string,
-  postal_code?: string
-): Promise<PhoneResult[]> {
-  if (!process.env.SERPAPI_API_KEY || !address) return [];
-
-  const streetPart = address.split(",")[0]?.trim() ?? address;
-  const location = [postal_code, city].filter(Boolean).join(" ");
-
-  const results: PhoneResult[] = [];
-  try {
-    const serpResults = await serpSearch(
-      `"${streetPart}" "${location}" site:pagesjaunes.fr`
-    );
-    for (const r of serpResults) {
-      for (const phone of extractPhones(`${r.snippet} ${r.title}`)) {
-        results.push({
-          number: phone,
-          source: "Pages Blanches (adresse)",
-          source_url: r.url,
-          method: "pages_blanches_address",
-          confidence: "medium",
-        });
-      }
-    }
-  } catch {
-    // non-fatal
-  }
-  return results;
-}
+// NOTE: Pages Jaunes / Pages Blanches are not queried programmatically.
+// Their ToS forbid automated extraction / derivative reuse. End-users remain
+// free to consult them manually via the source URLs surfaced elsewhere.
 
 // ─── Method 5: Direct web search + fetch ─────────────────────────────────────
 
@@ -534,30 +468,13 @@ export async function huntPhone(input: PhoneHunterInput): Promise<PhoneResult[]>
   }
 
   if (!has_website || allResults.length === 0) {
-    // Method 4a: Pages Jaunes (professional listings)
-    if (operator_name) {
-      add(await searchPagesDirectory(operator_name, city, false));
-      await sleep(400);
-    }
-    // Method 4b: Pages Blanches by name (personal directory for individuals)
-    if (host_name && !has_website) {
-      add(await searchPagesDirectory(host_name, city, true));
-      await sleep(400);
-    }
-    // Method 4c: Pages Blanches by address — finds residents at the property
-    // Works for people with NO business registration at all
-    if (address && (postal_code ?? postcode)) {
-      add(await searchPersonByAddress(address, city, postal_code ?? postcode));
-      await sleep(400);
-    }
-
-    // Method 5a: Leboncoin/OTA address search (individual owners post here)
+    // Method 4: Leboncoin/OTA address search (individual owners post here)
     if (address) {
       add(await searchByAddress(address, city));
       await sleep(400);
     }
 
-    // Method 5b: General web search
+    // Method 5: General web search
     if (searchName !== city) {
       add(await webSearchPhone(searchName, city));
     }

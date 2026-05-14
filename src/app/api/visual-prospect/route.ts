@@ -69,7 +69,11 @@ function toNormalizedLead(
     reconstruction_confidence: Math.round(
       (confidence_scores.geo_confidence + confidence_scores.image_match_confidence) / 2
     ),
-    exclusivity_score: direct_booking ? 80 : 40,
+    // Exclusivity reflects how hard this lead is to find via standard channels:
+    //   - No website + reachable phone     → ~95 (unreachable through any B2B DB)
+    //   - Direct booking site              → ~80 (active operator, less common)
+    //   - Operator with website            → ~40 (probably already prospected)
+    exclusivity_score: noWebsite && bestPhone ? 95 : direct_booking ? 80 : 40,
     reconstructed: true,
     geo_signals: {
       detected_location,
