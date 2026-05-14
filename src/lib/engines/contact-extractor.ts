@@ -8,6 +8,7 @@ import type {
 } from "@/lib/types";
 import { validatePublicUrl } from "@/lib/utils/ssrf";
 import { normalizePhone, toE164 } from "@/lib/utils/url";
+import { validateEmail, validateFrenchPhone, decodeAll } from "@/lib/utils/contact-validator";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -97,35 +98,69 @@ async function fetchPage(url: string, timeoutMs: number): Promise<string | null>
 
 // ─── Email extraction ────────────────────────────────────────────────────────
 
+function tryAddEmail(
+  raw: string,
+  confidence: Confidence,
+  sourceUrl: string,
+  found: Map<string, ExtractedEmail>
+): void {
+  const result = validateEmail(raw);
+  if (!result.valid || !result.cleaned) return;
+  const email = result.cleaned;
+  const existing = found.get(email);
+  const order: Confidence[] = ["high", "medium", "low"];
+  if (!existing || order.indexOf(confidence) < order.indexOf(existing.confidence)) {
+    found.set(email, { value: email, confidence, source: sourceUrl });
+  }
+}
+
 function extractEmailsFromHtml(html: string, sourceUrl: string): ExtractedEmail[] {
   const found = new Map<string, ExtractedEmail>();
 
-  // 1. Extract mailto: links (highest confidence)
-  const mailtoMatches = html.matchAll(/href="mailto:([^"?]+)/gi);
-  for (const m of mailtoMatches) {
-    const email = m[1].trim().toLowerCase();
-    if (isValidEmail(email)) {
-      found.set(email, { value: email, confidence: "high", source: sourceUrl });
+  // 1. mailto: links — highest confidence, intentional
+  const mailtoMatches = html.matchAll(/href=["']mailto:([^"'?>]+)/gi);
+  for (const m of mailtoMatches) tryAddEmail(m[1], "high", sourceUrl, found);
+
+  // 2. Schema.org JSON-LD structured data — highest confidence (curated by site owner)
+  const jsonLdMatches = html.matchAll(
+    /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+  );
+  for (const m of jsonLdMatches) {
+    try {
+      const parsed = JSON.parse(m[1]);
+      const objs = Array.isArray(parsed) ? parsed : [parsed];
+      for (const o of objs) {
+        if (typeof o?.email === "string") tryAddEmail(o.email, "high", sourceUrl, found);
+        if (typeof o?.contactPoint?.email === "string")
+          tryAddEmail(o.contactPoint.email, "high", sourceUrl, found);
+        if (Array.isArray(o?.contactPoint)) {
+          for (const cp of o.contactPoint)
+            if (typeof cp?.email === "string") tryAddEmail(cp.email, "high", sourceUrl, found);
+        }
+      }
+    } catch {
+      // malformed JSON-LD — skip
     }
   }
 
-  // 2. Regex over visible text (medium confidence)
-  const textMatches = html.matchAll(EMAIL_REGEX);
-  for (const m of textMatches) {
-    const email = m[0].trim().toLowerCase();
-    if (isValidEmail(email) && !found.has(email)) {
-      found.set(email, { value: email, confidence: "medium", source: sourceUrl });
-    }
-  }
+  // 3. Microdata (itemprop="email")
+  const microMatches = html.matchAll(
+    /itemprop=["']email["'][^>]*?(?:content=["']([^"']+)|>([^<]+))/gi
+  );
+  for (const m of microMatches) tryAddEmail(m[1] ?? m[2] ?? "", "high", sourceUrl, found);
 
-  // 3. Obfuscated formats (low confidence)
-  const stripped = html.replace(/<[^>]+>/g, " ");
-  const obfuscated = stripped.matchAll(OBFUSCATED_EMAIL_REGEX);
+  // 4. Regex over decoded visible text (medium confidence)
+  // Decode HTML entities and URL encoding BEFORE scanning — many real emails
+  // are hidden behind &#64; or %40 to evade scrapers
+  const decoded = decodeAll(html.replace(/<[^>]+>/g, " "));
+  const textMatches = decoded.matchAll(EMAIL_REGEX);
+  for (const m of textMatches) tryAddEmail(m[0], "medium", sourceUrl, found);
+
+  // 5. Obfuscated formats (foo [at] bar [dot] com) — low confidence
+  const obfuscated = decoded.matchAll(OBFUSCATED_EMAIL_REGEX);
   for (const m of obfuscated) {
-    const email = `${m[1].trim()}@${m[2].trim()}.${m[3].trim()}`.toLowerCase();
-    if (isValidEmail(email) && !found.has(email)) {
-      found.set(email, { value: email, confidence: "low", source: sourceUrl });
-    }
+    const email = `${m[1].trim()}@${m[2].trim()}.${m[3].trim()}`;
+    tryAddEmail(email, "low", sourceUrl, found);
   }
 
   return Array.from(found.values());
@@ -163,48 +198,86 @@ function isValidPhone(raw: string): boolean {
 
 // ─── Phone extraction ────────────────────────────────────────────────────────
 
-function extractPhonesFromHtml(html: string, sourceUrl: string): ExtractedPhone[] {
-  const found = new Map<string, ExtractedPhone>();
-
-  // 1. tel: links (highest confidence)
-  const telMatches = html.matchAll(/href="tel:([^"]+)"/gi);
-  for (const m of telMatches) {
-    const raw = m[1].trim();
-    if (!isValidPhone(raw)) continue;
-    const normalized = toE164(raw);
-    const key = normalized ?? raw;
+function tryAddPhone(
+  raw: string,
+  confidence: Confidence,
+  sourceUrl: string,
+  found: Map<string, ExtractedPhone>
+): void {
+  const result = validateFrenchPhone(raw);
+  if (!result.valid || !result.cleaned) return;
+  const cleaned = result.cleaned;
+  const normalized = toE164(cleaned);
+  const key = normalized ?? cleaned;
+  const existing = found.get(key);
+  const order: Confidence[] = ["high", "medium", "low"];
+  if (!existing || order.indexOf(confidence) < order.indexOf(existing.confidence)) {
     found.set(key, {
-      raw,
+      raw: cleaned,
       normalized: normalized ?? undefined,
-      confidence: "high",
+      confidence,
       source: sourceUrl,
     });
   }
+}
 
-  // 2. Regex over visible text — strip tags then pre-remove date patterns
-  const stripped = html
-    .replace(/<[^>]+>/g, " ")
-    // Remove DD/MM/YYYY and YYYY-MM-DD so they don't match the phone regex
-    .replace(/\b\d{1,2}[-\/\.]\d{1,2}[-\/\.](19|20)\d{2}\b/g, " ")
-    .replace(/\b(19|20)\d{2}[-\/\.]\d{1,2}[-\/\.]\d{1,2}\b/g, " ");
-  const phoneMatches = stripped.matchAll(PHONE_REGEX);
-  for (const m of phoneMatches) {
-    const raw = m[0].trim();
-    if (!isValidPhone(raw)) continue;
-    const normalized = toE164(raw);
-    const key = normalized ?? normalizePhone(raw);
-    if (!found.has(key)) {
-      found.set(key, {
-        raw,
-        normalized: normalized ?? undefined,
-        confidence: "medium",
-        source: sourceUrl,
-      });
+function extractPhonesFromHtml(html: string, sourceUrl: string): ExtractedPhone[] {
+  const found = new Map<string, ExtractedPhone>();
+
+  // 1. tel: links — highest confidence
+  const telMatches = html.matchAll(/href=["']tel:([^"'>]+)/gi);
+  for (const m of telMatches) tryAddPhone(m[1], "high", sourceUrl, found);
+
+  // 2. WhatsApp click-to-chat — phone is in the URL itself
+  const waMatches = html.matchAll(
+    /(?:wa\.me\/|api\.whatsapp\.com\/send\?phone=|whatsapp\.com\/send\?phone=)(\+?\d{8,15})/gi
+  );
+  for (const m of waMatches) tryAddPhone(m[1], "high", sourceUrl, found);
+
+  // 3. Schema.org JSON-LD — telephone field
+  const jsonLdMatches = html.matchAll(
+    /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+  );
+  for (const m of jsonLdMatches) {
+    try {
+      const parsed = JSON.parse(m[1]);
+      const objs = Array.isArray(parsed) ? parsed : [parsed];
+      for (const o of objs) {
+        if (typeof o?.telephone === "string") tryAddPhone(o.telephone, "high", sourceUrl, found);
+        if (typeof o?.contactPoint?.telephone === "string")
+          tryAddPhone(o.contactPoint.telephone, "high", sourceUrl, found);
+        if (Array.isArray(o?.contactPoint)) {
+          for (const cp of o.contactPoint)
+            if (typeof cp?.telephone === "string") tryAddPhone(cp.telephone, "high", sourceUrl, found);
+        }
+      }
+    } catch {
+      // malformed JSON-LD — skip
     }
   }
 
+  // 4. Microdata (itemprop="telephone")
+  const microMatches = html.matchAll(
+    /itemprop=["']telephone["'][^>]*?(?:content=["']([^"']+)|>([^<]+))/gi
+  );
+  for (const m of microMatches) tryAddPhone(m[1] ?? m[2] ?? "", "high", sourceUrl, found);
+
+  // 5. Regex over decoded visible text — decode entities + URL encoding FIRST
+  // so %2B33... and &#43;33... become +33...
+  const decoded = decodeAll(
+    html
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\b\d{1,2}[-\/\.]\d{1,2}[-\/\.](19|20)\d{2}\b/g, " ")
+      .replace(/\b(19|20)\d{2}[-\/\.]\d{1,2}[-\/\.]\d{1,2}\b/g, " ")
+  );
+  const phoneMatches = decoded.matchAll(PHONE_REGEX);
+  for (const m of phoneMatches) tryAddPhone(m[0], "medium", sourceUrl, found);
+
   return Array.from(found.values()).slice(0, 5);
 }
+
+// Mark the legacy helpers as referenced (kept for backwards-compat in other files)
+void isValidEmail; void isValidPhone; void normalizePhone;
 
 // ─── Social links ─────────────────────────────────────────────────────────────
 

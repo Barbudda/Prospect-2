@@ -13,6 +13,8 @@
 // Hosts WITHOUT a website are flagged as priority targets — they are less contacted
 // and more likely to need services like an AI concierge. Their leads get a score boost.
 
+import { validateFrenchPhone } from "@/lib/utils/contact-validator";
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -46,10 +48,9 @@ export interface PhoneHunterInput {
 const PHONE_RE =
   /(?:(?:\+|00)33[\s.\-]?[1-9]|0[1-9])(?:[\s.\-]?\d{2}){4}/g;
 
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/[\s.\-]/g, "").replace(/^(?:\+|00)33/, "0");
-  if (digits.length !== 10) return raw.trim();
-  return digits.replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, "$1 $2 $3 $4 $5");
+// Wraps the strict French validator — returns null on invalid input
+function normalizePhone(raw: string): string | null {
+  return validateFrenchPhone(raw).cleaned ?? null;
 }
 
 function extractPhones(text: string): string[] {
@@ -57,10 +58,8 @@ function extractPhones(text: string): string[] {
   let match: RegExpExecArray | null;
   const re = new RegExp(PHONE_RE.source, "g");
   while ((match = re.exec(text)) !== null) {
-    const normalized = normalizePhone(match[0]);
-    if (normalized && !phones.includes(normalized)) {
-      phones.push(normalized);
-    }
+    const clean = normalizePhone(match[0]);
+    if (clean && !phones.includes(clean)) phones.push(clean);
   }
   return phones;
 }
@@ -98,8 +97,11 @@ export async function getPlacePhone(place_id: string): Promise<PhoneResult | nul
       data.result?.international_phone_number;
     if (!phone) return null;
 
+    const clean = normalizePhone(phone);
+    if (!clean) return null;
+
     return {
-      number: normalizePhone(phone),
+      number: clean,
       source: "Google Maps",
       method: "google_maps",
       confidence: "high",
@@ -149,15 +151,15 @@ export async function searchEntreprises(
 
     for (const e of data.results ?? []) {
       const phone = e.siege?.telephone;
-      if (phone) {
-        const normalized = normalizePhone(phone);
-        results.push({
-          number: normalized,
-          source: "Registre des Entreprises (gouv.fr)",
-          method: "recherche_entreprises",
-          confidence: "high",
-        });
-      }
+      if (!phone) continue;
+      const clean = normalizePhone(phone);
+      if (!clean) continue;
+      results.push({
+        number: clean,
+        source: "Registre des Entreprises (gouv.fr)",
+        method: "recherche_entreprises",
+        confidence: "high",
+      });
     }
   } catch {
     // non-fatal
@@ -287,14 +289,15 @@ async function searchSIRENEByGPS(lat: number, lon: number): Promise<PhoneResult[
       const data = await res.json() as { results?: EntrepriseResult[] };
       for (const e of data.results ?? []) {
         const phone = e.siege?.telephone;
-        if (phone) {
-          results.push({
-            number: normalizePhone(phone),
-            source: `SIRENE GPS — ${e.nom_complet ?? code_naf}`,
-            method: "sirene_gps",
-            confidence: "high",
-          });
-        }
+        if (!phone) continue;
+        const clean = normalizePhone(phone);
+        if (!clean) continue;
+        results.push({
+          number: clean,
+          source: `SIRENE GPS — ${e.nom_complet ?? code_naf}`,
+          method: "sirene_gps",
+          confidence: "high",
+        });
       }
       await sleep(200);
     } catch {
