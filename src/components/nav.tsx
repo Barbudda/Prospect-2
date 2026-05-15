@@ -4,9 +4,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
-import { Sun, Moon, LogOut, LayoutDashboard, Users, Settings, History, ScanSearch, Map, Network } from "lucide-react";
+import { Sun, Moon, LogOut, LayoutDashboard, Users, Settings, History, ScanSearch, Map, Network, BarChart3 } from "lucide-react";
 
 const NAV_LINKS = [
+  { href: "/dashboard", label: "Dashboard", icon: BarChart3, highlight: true },
   { href: "/visual", label: "Visual", icon: ScanSearch, highlight: true },
   { href: "/maps", label: "Maps", icon: Map, highlight: true },
   { href: "/operators", label: "Operators", icon: Network, highlight: false },
