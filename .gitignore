@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local AI tooling (claude-code, claude-flow)
+.claude/
+.claude-flow/
+.swarm/
+.mcp.json
+ruvector.db
