@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { validateEmail, validateFrenchPhone } from "@/lib/utils/contact-validator";
+import { huntPhone } from "@/lib/engines/phone-hunter";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -157,6 +158,74 @@ export async function GET(req: NextRequest) {
         phones_passing: phones.filter((p) => p.pass).length + "/" + phones.length,
         emails_passing: emails.filter((e) => e.pass).length + "/" + emails.length,
       },
+    });
+  }
+
+  // ── 6. Coverage stats — how many leads have phone / email / website? ──────
+  if (action === "coverage") {
+    const [total, withPhone, withEmail, withWebsite, recon] = await Promise.all([
+      service.from("leads").select("*", { count: "exact", head: true }),
+      service.from("leads").select("*", { count: "exact", head: true }).not("phone", "is", null),
+      service.from("leads").select("*", { count: "exact", head: true }).not("email", "is", null),
+      service.from("leads").select("*", { count: "exact", head: true }).not("website_url", "is", null),
+      service.from("leads").select("*", { count: "exact", head: true }).eq("reconstructed", true),
+    ]);
+    return NextResponse.json({
+      total: total.count,
+      with_phone: withPhone.count,
+      with_email: withEmail.count,
+      with_website: withWebsite.count,
+      reconstructed: recon.count,
+    });
+  }
+
+  // ── 7. Retry-phone simulation on the most recent visual-reconstruction lead ─
+  if (action === "retry_phone_sim") {
+    const { data: lead } = await service
+      .from("leads")
+      .select("*")
+      .eq("reconstructed", true)
+      .is("phone", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+    if (!lead) return NextResponse.json({ error: "No suitable lead found" });
+
+    const geo = typeof lead.geo_signals === "string"
+      ? JSON.parse(lead.geo_signals) as Record<string, unknown>
+      : (lead.geo_signals as Record<string, unknown> | null) ?? {};
+    const detected = geo.detected_location as { latitude?: number; longitude?: number; address?: string } | undefined;
+    const exterior = geo.exterior_signals as Parameters<typeof huntPhone>[0]["exterior_signals"];
+    const postal = lead.address?.match(/\b(\d{5})\b/)?.[1];
+
+    const start = Date.now();
+    const phones = await huntPhone({
+      operator_name: lead.company_name ?? lead.primary_name,
+      host_name: lead.person_name ?? undefined,
+      address: lead.address ?? detected?.address,
+      city: lead.city,
+      country: lead.country,
+      has_website: Boolean(lead.website_url),
+      latitude: detected?.latitude,
+      longitude: detected?.longitude,
+      postal_code: postal,
+      exterior_signals: exterior,
+    });
+    return NextResponse.json({
+      lead_id: lead.id,
+      lead_name: lead.primary_name,
+      city: lead.city,
+      has_exterior_signals: Boolean(exterior),
+      exterior_signals: exterior
+        ? {
+            surnames: exterior.surnames?.length ?? 0,
+            property_names: exterior.property_names?.length ?? 0,
+            permit: Boolean(exterior.permit_info),
+          }
+        : null,
+      took_ms: Date.now() - start,
+      phones_found: phones.length,
+      top_5: phones.slice(0, 5),
     });
   }
 
