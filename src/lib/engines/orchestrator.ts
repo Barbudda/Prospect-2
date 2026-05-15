@@ -210,7 +210,24 @@ async function persistLeads(
   userId: string,
   runId: string
 ): Promise<void> {
+  // Quality gate — reject press articles, help pages, Reddit threads,
+  // Wikipedia, news domains, generic "Comment devenir Superhost" guides.
+  const { gradeLead } = await import("./lead-quality-gate");
+  const keepers: NormalizedLead[] = [];
+  let rejected = 0;
   for (const lead of leads) {
+    const verdict = gradeLead(lead);
+    if (verdict.keep) {
+      keepers.push(lead);
+    } else {
+      rejected++;
+    }
+  }
+  if (rejected > 0) {
+    console.log(`[orchestrator] quality gate rejected ${rejected} junk lead(s) out of ${leads.length}`);
+  }
+
+  for (const lead of keepers) {
     const { data: inserted, error } = await supabase
       .from("leads")
       .insert({
@@ -317,7 +334,12 @@ async function saveDraftLeads(
   runId: string
 ): Promise<void> {
   if (leads.length === 0) return;
-  const rows = leads.map((lead) => ({
+  // Apply the same quality gate to drafts so the progress counter never
+  // inflates with junk.
+  const { gradeLead } = await import("./lead-quality-gate");
+  const keepers = leads.filter((l) => gradeLead(l).keep);
+  if (keepers.length === 0) return;
+  const rows = keepers.map((lead) => ({
     user_id: userId,
     run_id: runId,
     primary_name: lead.primary_name,

@@ -12,26 +12,27 @@ import { validateEmail, validateFrenchPhone, decodeAll } from "@/lib/utils/conta
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
+// LCEN Article 19: every French business website MUST publish identity +
+// contact info on a public page. We try a wide spread of common path names
+// so we don't miss the mentions légales just because it's at /legal-mentions
+// instead of /mentions-legales.
 const CONTACT_PATHS = [
-  "/contact",
-  "/contactez-nous",
-  "/about",
-  "/a-propos",
-  "/qui-sommes-nous",
-  "/mentions-legales",
-  "/legal",
-  "/privacy",
-  "/proprietaires",
-  "/owner",
-  "/owners",
-  "/gestion",
-  "/conciergerie",
-  "/services",
-  "/nos-logements",
-  "/locations",
-  "/properties",
-  "/villas",
-  "/faq",
+  // Contact
+  "/contact", "/contactez-nous", "/contactez", "/nous-contacter", "/contact-us",
+  // About
+  "/about", "/about-us", "/a-propos", "/qui-sommes-nous", "/notre-equipe", "/team",
+  // Legal (mandatory in FR)
+  "/mentions-legales", "/mentions", "/legal", "/legal-mentions", "/legal-notice",
+  "/imprint", "/impressum", "/cgv", "/cgu", "/conditions", "/conditions-generales",
+  "/conditions-generales-de-vente", "/conditions-generales-utilisation",
+  "/privacy", "/politique-de-confidentialite", "/cookies",
+  // STR-specific
+  "/proprietaires", "/owner", "/owners",
+  "/gestion", "/gestion-locative", "/conciergerie", "/concierge",
+  "/services", "/nos-services", "/our-services",
+  "/nos-logements", "/locations", "/properties", "/villas", "/nos-locations",
+  "/portfolio", "/biens",
+  "/faq", "/help", "/aide",
 ];
 
 const EMAIL_REGEX =
@@ -265,7 +266,22 @@ function extractPhonesFromHtml(html: string, sourceUrl: string): ExtractedPhone[
   );
   for (const m of microMatches) tryAddPhone(m[1] ?? m[2] ?? "", "high", sourceUrl, found);
 
-  // 5. Regex over decoded visible text — decode entities + URL encoding FIRST
+  // 5. <footer> targeted pass — French mentions-légales footers are almost
+  // always where the real phone lives. We boost confidence for matches found
+  // inside a <footer>…</footer> region.
+  const footerMatch = html.match(/<footer[\s\S]*?<\/footer>/i);
+  if (footerMatch) {
+    const decodedFooter = decodeAll(
+      footerMatch[0]
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\b\d{1,2}[-\/\.]\d{1,2}[-\/\.](19|20)\d{2}\b/g, " ")
+    );
+    for (const m of decodedFooter.matchAll(PHONE_REGEX)) {
+      tryAddPhone(m[0], "high", sourceUrl, found);
+    }
+  }
+
+  // 6. Regex over decoded visible text — decode entities + URL encoding FIRST
   // so %2B33... and &#43;33... become +33...
   const decoded = decodeAll(
     html
@@ -531,10 +547,48 @@ export async function extractContactsFromWebsite(
     return null;
   }
 
-  const urlsToTry = [
-    baseUrl,
-    ...CONTACT_PATHS.map((p) => `${origin}${p}`),
-  ].slice(0, maxPages);
+  // Step A — fetch the homepage first and FOLLOW any link whose anchor text
+  // or href hints at the mentions-légales / contact page. This catches sites
+  // where the legal page is at an unusual URL like /pages/legal-fr-23 — very
+  // common on Wix/Webflow/Squarespace sites.
+  const followedFromHome: string[] = [];
+  try {
+    const homeHtml = await fetchPage(baseUrl, timeoutMs);
+    if (homeHtml) {
+      const linkRe =
+        /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{0,200}?)<\/a>/gi;
+      const hintRe =
+        /\b(?:mentions?\s*l[ée]gales?|legal\s*notice|legal\s*mentions?|imprint|impressum|cgv|cgu|contact|contactez|nous\s+contacter|propri[ée]taires?|owner|conciergerie|locations?|portfolio|biens)\b/i;
+      const seen = new Set<string>();
+      for (const m of homeHtml.matchAll(linkRe)) {
+        const href = m[1];
+        const text = m[2].replace(/<[^>]+>/g, " ").trim();
+        if (!href || href.startsWith("#") || href.startsWith("javascript:")) continue;
+        const combined = `${text} ${href}`;
+        if (!hintRe.test(combined)) continue;
+        let abs: string;
+        try {
+          abs = new URL(href, baseUrl).toString();
+        } catch {
+          continue;
+        }
+        if (new URL(abs).origin !== origin) continue;
+        if (seen.has(abs)) continue;
+        seen.add(abs);
+        followedFromHome.push(abs);
+      }
+    }
+  } catch {
+    // home-page parse failure is non-fatal; we still try the fixed paths.
+  }
+
+  const urlsToTry = Array.from(
+    new Set([
+      baseUrl,
+      ...followedFromHome.slice(0, 6),
+      ...CONTACT_PATHS.map((p) => `${origin}${p}`),
+    ])
+  ).slice(0, maxPages);
 
   const allEmails: ExtractedEmail[] = [];
   const allPhones: ExtractedPhone[] = [];

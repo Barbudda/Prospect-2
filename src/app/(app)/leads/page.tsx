@@ -327,6 +327,47 @@ export default function LeadsPage() {
           >
             Backfill phones
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-amber-600 hover:bg-amber-500/10"
+            onClick={async () => {
+              // Dry-run first so the user sees what would be deleted
+              const previewRes = await fetch("/api/leads/purge-junk", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ dry_run: true }),
+              });
+              if (!previewRes.ok) {
+                toast.error("Purge preview failed");
+                return;
+              }
+              const preview = await previewRes.json();
+              if (preview.junk_count === 0) {
+                toast.success("No junk leads detected.");
+                return;
+              }
+              const sampleLines = (preview.samples ?? []).slice(0, 5).map((s: { name: string; reasons: string[] }) => `  · ${s.name} — ${s.reasons[0] ?? ""}`).join("\n");
+              if (!confirm(
+                `Delete ${preview.junk_count} junk lead(s) of ${preview.scanned} scanned?\n\n` +
+                `Examples:\n${sampleLines}\n\nThis removes press articles, help pages, Reddit threads, Wikipedia, news domains.`
+              )) return;
+              const res = await fetch("/api/leads/purge-junk", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({}),
+              });
+              if (!res.ok) {
+                toast.error("Purge failed");
+                return;
+              }
+              const d = await res.json();
+              toast.success(`Deleted ${d.deleted} junk leads`);
+              fetchLeads();
+            }}
+          >
+            Purge junk
+          </Button>
           <Button variant="outline" size="sm" onClick={exportCSV}>
             Export {selected.size > 0 ? `CSV (${selected.size})` : "CSV"}
           </Button>
