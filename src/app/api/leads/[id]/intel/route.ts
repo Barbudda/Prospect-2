@@ -24,6 +24,7 @@ import { detectOperatorClusters, type LeadForClustering } from "@/lib/engines/op
 import { scanReviewIntelligence, type LeadForReviewIntel } from "@/lib/engines/review-intelligence";
 import { classifyLeadAsPartner, type LeadForPartner } from "@/lib/engines/partner-classifier";
 import * as DVF from "@/lib/providers/dvf";
+import * as Sitadel from "@/lib/providers/sitadel";
 import { buildComplianceSummary } from "@/lib/utils/compliance";
 import { generateLeadDossier, type DossierInput } from "@/lib/engines/lead-dossier";
 import { persistSignalsForLead } from "@/lib/engines/signal-persister";
@@ -33,6 +34,9 @@ export const maxDuration = 60;
 
 interface GeoSignalsBlob {
   detected_location?: { latitude?: number; longitude?: number; address?: string };
+  exterior_signals?: {
+    permit_info?: { beneficiary_name?: string; permit_number?: string };
+  };
 }
 
 function parseGeoSignals(raw: unknown): GeoSignalsBlob {
@@ -74,6 +78,9 @@ export async function POST(
     const service = createServiceClient();
     const geo = parseGeoSignals(lead.geo_signals);
     const gps = geo.detected_location;
+    const permitName = geo.exterior_signals?.permit_info?.beneficiary_name;
+    // Extract last 5 digits of postal code → INSEE commune lookup proxy.
+    const inseeFromAddress = lead.address?.match(/\b(\d{5})\b/)?.[1];
 
     // Parallel collection
     const [
@@ -84,6 +91,7 @@ export async function POST(
       complianceSummary,
       peerLeads,
       dvf,
+      sitadel,
     ] = await Promise.all([
       Promise.resolve(scanLeadForWeirdSignals(lead as LeadForSignals).sort(
         (a, b) => severityRank(b) - severityRank(a)
@@ -103,6 +111,12 @@ export async function POST(
         .then((r) => (r.data ?? []) as GraphLead[]),
       gps?.latitude && gps?.longitude
         ? DVF.lookupByCoords(gps.latitude, gps.longitude, 30)
+        : Promise.resolve(null),
+      // Sit@del2 building-permit cross-reference: only run when we have BOTH
+      // a permit beneficiary name from exterior OCR AND an INSEE-like commune
+      // code from the address. Otherwise the lookup has nothing to match.
+      permitName && inseeFromAddress
+        ? Sitadel.lookupByCommune(inseeFromAddress, permitName)
         : Promise.resolve(null),
     ]);
 
@@ -171,6 +185,7 @@ export async function POST(
       cluster: ownCluster,
       relationships: relations,
       dvf,
+      sitadel,
       dossier,
     });
   } catch (err) {

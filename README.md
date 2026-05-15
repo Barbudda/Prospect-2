@@ -1,91 +1,119 @@
-# Prospect Airbnb Leads V1
+# Prospect Airbnb — Lead Intelligence Engine
 
-Automated B2B lead generation for finding contactable Airbnb-related businesses.
+B2B lead intelligence for the French short-term rental market. Finds operators, validates their public contacts, scores opportunity, and produces compliance-aware outreach drafts — all from public + open-data sources.
 
-## Quick Setup
+Live: **prospect-2.vercel.app**
 
-### 1. Install dependencies
+---
+
+## Quick start
+
 ```bash
 npm install
+cp .env.local.example .env.local        # fill in keys
+npm run dev                              # http://localhost:3000
+npm test                                 # 17 parser tests
+npm run build                            # production build
 ```
 
-### 2. Configure Supabase
-
-Create a project at [supabase.com](https://supabase.com), then run the migration:
-
-- Open your Supabase dashboard → SQL Editor
-- Paste and run the contents of `supabase/migrations/001_initial_schema.sql`
-
-### 3. Configure environment variables
-```bash
-cp .env.local.example .env.local
-```
-
-Edit `.env.local` and fill in:
-- `NEXT_PUBLIC_SUPABASE_URL` — your Supabase project URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — your Supabase anon key
-- `SUPABASE_SERVICE_ROLE_KEY` — your Supabase service role key
-
-Then add **at least one search provider** key:
-- `SERPAPI_API_KEY` — [serpapi.com](https://serpapi.com) (recommended)
-- `BRAVE_SEARCH_API_KEY` — [brave.com/search/api](https://brave.com/search/api)
-- `GOOGLE_PLACES_API_KEY` — Google Cloud Console
-
-### 4. Run the app
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000)
+**Minimum env keys**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, plus at least one of `SERPAPI_API_KEY` / `GOOGLE_PLACES_API_KEY` / `MAMMOUTH_API_KEY`.
 
 ---
 
-## Demo Flow
+## Pages
 
-1. Open the app and sign up / sign in
-2. Enter **City**: `Biarritz`, **Country**: `France`
-3. Click **Find Leads**
-4. Watch real-time progress — sources → contacts → scoring
-5. Browse leads table, open any lead for full details
-6. Export CSV for outreach
-
----
-
-## Providers
-
-All API keys are set via environment variables. No keys are ever stored in the database.
-
-| Provider | Type | Variable |
-|---|---|---|
-| SerpAPI | Web Search | `SERPAPI_API_KEY` |
-| Brave Search | Web Search | `BRAVE_SEARCH_API_KEY` |
-| Google Places | Local Business | `GOOGLE_PLACES_API_KEY` |
-| Hunter.io | Enrichment | `HUNTER_API_KEY` |
-| Dropcontact | Enrichment | `DROPCONTACT_API_KEY` |
-
-Full list in `.env.local.example`.
+| Path | What it does |
+|---|---|
+| `/dashboard` | Cross-portfolio overview: top leads, clusters, revenue upside, weird-signal frequency, compliance health |
+| `/visual` | Visual prospecting — paste an Airbnb URL or scan a city for individual hosts via mass mode |
+| `/maps` | Google Maps operator discovery for a city |
+| `/ecosystem` | Reverse-concierge view: partner suppliers around a city + outreach templates |
+| `/operators` | Hidden multi-property operator clusters with one-click merge |
+| `/partners` | Classify leads as customer-targets vs potential partners |
+| `/review` | Human-in-the-loop verification queue |
+| `/tasks` | Follow-ups, verifications, compliance escalations |
+| `/leads` and `/leads/[id]` | Lead list + per-lead Intelligence Hub (signals, contact paths, dossier, audit, timeline) |
+| `/health` | Real-time reachability + latency probe across every provider |
+| `/runs` | Batch search runs |
+| `/settings` | Provider key status |
 
 ---
 
-## Architecture
+## Data sources
+
+**Free + open-data (no key)**
+- Recherche Entreprises (gouv.fr SIRENE)
+- IGN Cadastre (apicarto.ign.fr)
+- BAN — Base Adresse Nationale
+- DVF — Demandes de Valeurs Foncières (cquest.org)
+- Sit@del2 — French building-permit database (data.gouv.fr)
+- 4 direct platform scrapers: Airbnb · Abritel · Gîtes de France · Clévacances
+
+**Configured by key**
+- Mammouth (AI brain — required for visual reconstruction)
+- Google Vision · Google Places · Google Street View
+- Pappers (SIRENE Premium)
+- Anthropic Claude (outreach writer)
+- Hunter.io · Dropcontact (B2B enrichment, optional)
+- SerpAPI (allow-listed fallback only — gates direct-scrape platforms)
+
+See `/health` in the running app for live reachability per provider.
+
+---
+
+## Architecture in one paragraph
+
+Engines under `src/lib/engines/` orchestrate the work. Providers under `src/lib/providers/` are pure data sources. Engines call providers through `search-router.ts` which enforces an allow-list (queries targeting our directly-scraped platforms cannot route to SerpAPI). API routes under `src/app/api/` are thin: auth + validation + engine call + DB write. Pages under `src/app/(app)/` are client components consuming the APIs.
 
 ```
-User → Dashboard → POST /api/runs/create → /runs/[id] (progress)
-                         ↓ background
-                   POST /api/runs/[id]/start
-                         ↓
-                   Orchestrator:
-                     Engine 1: Local Business Search (Google Places, SerpAPI Maps)
-                     Engine 2: Web Search Discovery (SerpAPI, Brave)
-                     Engine 3: Website Contact Extraction
-                     Engine 4: Enrichment (Hunter, Dropcontact)
-                     Deduplication → Scoring → Persist to Supabase
-                         ↓
-                   GET /api/runs/[id]/status (polls every 3s)
-                         ↓
-                   /leads?run=[id] → Lead detail → CSV export
+Discovery (Visual / Maps / Orchestrator / Mass Prospect)
+  → Strict contact validation (validators reject CSS, JS, URL-encoded garbage)
+  → Phone Hunter (8 methods + cross-validation + early-exit)
+  → Operator clustering (hidden multi-property detection)
+  → Weird signal scanner (13 high-intent opportunity flags)
+  → Website auditor
+  → Review-intelligence amenity-gap signals
+  → Partner-vs-target classification
+  → Entity graph relationships
+  → DVF property history + Sit@del2 permit cross-reference
+  → Lead Dossier (Mammouth synthesis + multi-channel outreach drafts)
+  → Contact Path Finder (10 lawful channels with risk + consent flags)
+  → Opportunity Scoring v2 (quality / confidence / compliance-safety)
+  → Compliance helpers (lawful basis, retention, suppression, DNC)
+  → Human-in-the-loop review queue + tasks + merge
+  → Prioritization Dashboard
+  → Inbound Intent Capture
+  → Excel + CSV export
 ```
 
-## Compliance
+---
 
-This tool collects only publicly available business information for professional B2B outreach. All leads are sourced from public web pages, business directories, and official APIs. It does not bypass authentication or scrape private data. All outreach records include opt-out tracking.
+## Compliance — non-negotiables
+
+- Public, lawful, partner-provided, or consent-based sources only.
+- No bypassing platform ToS or scraping behind authentication.
+- GDPR-aware per-data-point lawful basis tracking and retention dates (`src/lib/utils/compliance.ts`).
+- Suppression / Do-Not-Contact list honoured at every save site.
+- Strict contact-format validation before any record is stored or exported.
+
+---
+
+## Migrations (optional upgrade path)
+
+`docs/migrations/001_search_cache_and_suppression.sql` adds:
+- `search_cache` — persistent KV cache surviving Vercel cold starts
+- `lead_suppression` — email/phone DNC list per user (with RLS)
+- `lead_compliance_records` — per-data-point audit
+- `graph_relationships` — persisted entity-graph edges
+
+App runs without these tables (in-memory cache + per-lead DNC). Apply when ready — the code auto-detects.
+
+---
+
+## Roadmap status
+
+18 of 20 lead-intelligence features in production. The two not built are explicit deferrals:
+- **#10 Demand Spike Detector** — requires paid events/weather APIs
+- **#19 Microservices Architecture** — current monolith handles MVP/V1 scale
+
+Full detail: `docs/lead-intelligence-roadmap.md`.
