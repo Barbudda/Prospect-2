@@ -229,6 +229,26 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // ── Dump all stored phones + emails for inspection ─────────────────────────
+  if (action === "dump_contacts") {
+    const { data: leads } = await service
+      .from("leads")
+      .select("id, primary_name, city, email, phone, created_at, source_type")
+      .or("email.not.is.null,phone.not.is.null")
+      .order("created_at", { ascending: false })
+      .limit(300);
+    return NextResponse.json({
+      count: leads?.length ?? 0,
+      contacts: (leads ?? []).map((l) => ({
+        name: l.primary_name,
+        city: l.city,
+        email: l.email,
+        phone: l.phone,
+        source_type: l.source_type,
+      })),
+    });
+  }
+
   // ── default summary ────────────────────────────────────────────────────────
   return NextResponse.json({
     actions: [
