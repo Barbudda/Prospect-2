@@ -58,9 +58,11 @@ export interface PhoneHunterInput {
 
 // ─── Phone extraction ─────────────────────────────────────────────────────────
 
-// Matches: 06 12 34 56 78, +33 6 12 34 56 78, 0033612345678, 01.23.45.67.89
+// Matches: 06 12 34 56 78, +33 6 12 34 56 78, 0033612345678, 01.23.45.67.89,
+// and the very common French write-style with parenthesised zero:
+//   +33 (0)5 59 74 10 32  → caught and normalised by the validator.
 const PHONE_RE =
-  /(?:(?:\+|00)33[\s.\-]?[1-9]|0[1-9])(?:[\s.\-]?\d{2}){4}/g;
+  /(?:(?:\+|00)33[\s.\-]?(?:\(0\)[\s.\-]?)?[1-9]|0[1-9])(?:[\s.\-]?\d{2}){4}/g;
 
 // Wraps the strict French validator — returns null on invalid input
 function normalizePhone(raw: string): string | null {

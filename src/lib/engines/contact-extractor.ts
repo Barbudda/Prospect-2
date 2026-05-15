@@ -40,11 +40,14 @@ const EMAIL_REGEX =
 const OBFUSCATED_EMAIL_REGEX =
   /([a-zA-Z0-9._%+\-]+)\s*[\[\(]?\s*(?:at|@|arobase)\s*[\]\)]?\s*([a-zA-Z0-9.\-]+)\s*[\[\(]?\s*(?:dot|\.)\s*[\]\)]?\s*([a-zA-Z]{2,})/gi;
 
-// Phone regex: negative lookahead/lookbehind prevents matching inside larger digit
-// sequences (e.g. tracking IDs). Requires separators in the generic alternative so
-// plain 16-digit numbers don't match.
+// Phone regex.
+//   - Optional international prefix (+33 / 0033) followed optionally by "(0)"
+//     — a very common French write-style: "+33 (0)5 59 74 10 32".
+//   - French local pattern 0[1-9] + 4×(separator+2-digit).
+//   - Generic separator-bearing fallback for non-French formats.
+//   - Negative lookbehind/lookahead prevent matching inside larger digit blobs.
 const PHONE_REGEX =
-  /(?<!\d)(?:\+?(?:33|44|1|49|34|39|351|41|32|31|352)\s?)?(?:0[1-9](?:[\s.\-]?\d{2}){4}|\(?\d{2,4}\)?[\s.\-]\d{2,4}[\s.\-]\d{2,4}(?:[\s.\-]\d{2,4})?)(?!\d)/g;
+  /(?<!\d)(?:\+?(?:33|44|1|49|34|39|351|41|32|31|352)[\s.\-]?(?:\(0\)[\s.\-]?)?)?(?:0[1-9](?:[\s.\-]?\d{2}){4}|\(?\d{2,4}\)?[\s.\-]\d{2,4}[\s.\-]\d{2,4}(?:[\s.\-]\d{2,4})?)(?!\d)/g;
 
 // Extensions that are never valid email TLDs (JS methods, file extensions, …)
 const NON_EMAIL_EXTENSIONS = new Set([

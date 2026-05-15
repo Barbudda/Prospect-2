@@ -210,7 +210,14 @@ export function validateFrenchPhone(raw: string): ValidationResult {
   if (raw.length > 40) return { valid: false, reason: "raw_too_long" };
 
   // Decode entities + URL encoding FIRST — many bad phones are encoded valid ones
-  const decoded = decodeAll(raw);
+  let decoded = decodeAll(raw);
+
+  // VERY common French write-style: "+33 (0)5 59 74 10 32" — the (0) is a hint,
+  // not a digit. Strip "(0)" after any international prefix BEFORE we collapse
+  // separators, otherwise it becomes a spurious leading zero and pushes the
+  // total to 11 digits which then fails the strict check.
+  decoded = decoded.replace(/(\+|00)33[\s.\-]*\(0\)/i, "+33");
+  decoded = decoded.replace(/^\(0\)/, ""); // local-format variant: "(0)5 59 ..."
 
   // Strip everything except digits and leading +
   let digits = decoded.replace(/[^\d+]/g, "");
