@@ -268,6 +268,31 @@ export default function LeadsPage() {
               <Button
                 variant="outline"
                 size="sm"
+                className="text-amber-600 hover:bg-amber-500/10"
+                onClick={async () => {
+                  if (!confirm(`Mark ${selected.size} lead(s) as Do-Not-Contact?\nTheir contact data (email, phone, WhatsApp) will be nulled.`)) return;
+                  const ids = Array.from(selected);
+                  const res = await fetch("/api/leads/bulk-dnc", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ lead_ids: ids, reason: "Bulk DNC from leads list" }),
+                  });
+                  if (!res.ok) {
+                    const b = await res.json().catch(() => ({}));
+                    toast.error(b.error ?? "Bulk DNC failed");
+                    return;
+                  }
+                  const data = await res.json();
+                  toast.success(`${data.processed} marked DNC, ${data.failed} failed`);
+                  setSelected(new Set());
+                  fetchLeads();
+                }}
+              >
+                Bulk DNC ({selected.size})
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 className="text-destructive hover:bg-destructive/10"
                 onClick={deleteSelected}
               >

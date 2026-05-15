@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
-import { Sun, Moon, LogOut, LayoutDashboard, Users, Settings, History, ScanSearch, Map, Network, BarChart3, ShieldAlert, Handshake, CheckSquare, Sparkles } from "lucide-react";
+import { Sun, Moon, LogOut, LayoutDashboard, Users, Settings, History, ScanSearch, Map, Network, BarChart3, ShieldAlert, Handshake, CheckSquare, Sparkles, Activity } from "lucide-react";
 
 const NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart3, highlight: true },
@@ -18,6 +18,7 @@ const NAV_LINKS = [
   { href: "/", label: "Search", icon: LayoutDashboard, highlight: false },
   { href: "/runs", label: "Runs", icon: History, highlight: false },
   { href: "/leads", label: "Leads", icon: Users, highlight: false },
+  { href: "/health", label: "Health", icon: Activity, highlight: false },
   { href: "/settings", label: "Settings", icon: Settings, highlight: false },
 ];
 

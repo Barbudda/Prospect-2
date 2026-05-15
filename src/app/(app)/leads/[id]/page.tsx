@@ -318,6 +318,21 @@ export default function LeadDetailPage() {
   const [loadingDossier, setLoadingDossier] = useState(false);
   const [schedulingTask, setSchedulingTask] = useState(false);
   const [scanningNews, setScanningNews] = useState(false);
+  const [timeline, setTimeline] = useState<Array<{ kind: string; at: string; title: string; detail?: string }> | null>(null);
+  const [loadingTimeline, setLoadingTimeline] = useState(false);
+
+  async function loadTimeline() {
+    setLoadingTimeline(true);
+    try {
+      const res = await fetch(`/api/leads/${id}/timeline`);
+      const data = await res.json();
+      setTimeline(data.entries ?? []);
+    } catch {
+      toast.error("Timeline load failed");
+    } finally {
+      setLoadingTimeline(false);
+    }
+  }
 
   async function scheduleFollowUp() {
     const title = window.prompt("Follow-up title?", "Follow up with this lead");
@@ -848,6 +863,38 @@ export default function LeadDetailPage() {
               </div>
             </div>
           )}
+
+          {/* Activity timeline */}
+          <div className="pt-3 border-t border-border/30">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-semibold uppercase text-muted-foreground">Activity timeline</h4>
+              <Button variant="ghost" size="sm" onClick={loadTimeline} disabled={loadingTimeline} className="h-6 text-[10px]">
+                {loadingTimeline ? "…" : timeline ? "Refresh" : "Load timeline"}
+              </Button>
+            </div>
+            {timeline && (
+              <div className="space-y-1.5 max-h-96 overflow-auto">
+                {timeline.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No events yet.</p>
+                ) : timeline.map((t, i) => (
+                  <div key={i} className="flex items-start gap-3 text-xs">
+                    <span className="text-[10px] text-muted-foreground/60 w-32 shrink-0 tabular-nums">
+                      {new Date(t.at).toLocaleString()}
+                    </span>
+                    <span className={`shrink-0 w-1.5 h-1.5 rounded-full mt-1.5 ${
+                      t.kind === "lead_created" ? "bg-violet-500"
+                      : t.kind === "event" ? "bg-blue-500"
+                      : "bg-emerald-500"
+                    }`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium">{t.title}</div>
+                      {t.detail && <div className="text-muted-foreground truncate">{t.detail}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
 
