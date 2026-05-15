@@ -17,8 +17,40 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Phone, Loader2, RefreshCw } from "lucide-react";
+import { Phone, Loader2, RefreshCw, Gauge, AlertTriangle, CheckCircle2, Copy } from "lucide-react";
 import type { OutreachStatus, ScoreLabel } from "@/lib/types";
+
+interface AuditFinding {
+  code: string;
+  severity: "low" | "medium" | "high";
+  description: string;
+}
+
+interface WebsiteAuditResponse {
+  url: string;
+  fetched: boolean;
+  status_code?: number;
+  fetch_ms?: number;
+  audit_score: number;
+  findings: AuditFinding[];
+  signals: {
+    has_booking_engine: boolean;
+    booking_engine: string | null;
+    has_schema_jsonld: boolean;
+    has_multilingual: boolean;
+    detected_languages: string[];
+    has_analytics: boolean;
+    analytics_vendors: string[];
+    has_newsletter_capture: boolean;
+    copyright_year: number | null;
+    copyright_stale: boolean;
+    title?: string | null;
+  };
+  lost_revenue_hypothesis?: string;
+  recommended_fixes: string[];
+  outreach_snippet?: string;
+  error?: string;
+}
 
 interface PhoneCandidate {
   number: string;
@@ -197,6 +229,25 @@ export default function LeadDetailPage() {
   const [outreachEmail, setOutreachEmail] = useState<string | null>(null);
   const [retryingPhone, setRetryingPhone] = useState(false);
   const [retryResult, setRetryResult] = useState<RetryResponse | null>(null);
+  const [auditing, setAuditing] = useState(false);
+  const [audit, setAudit] = useState<WebsiteAuditResponse | null>(null);
+
+  async function runWebsiteAudit() {
+    setAuditing(true);
+    setAudit(null);
+    try {
+      const res = await fetch(`/api/leads/${id}/audit?with_outreach=1`, { method: "POST" });
+      const data = (await res.json()) as WebsiteAuditResponse;
+      if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`);
+      setAudit(data);
+      if (!data.fetched) toast.warning("Website unreachable — see findings");
+      else toast.success(`Audit complete — score ${data.audit_score}/100`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Audit failed");
+    } finally {
+      setAuditing(false);
+    }
+  }
 
   async function retryPhoneSearch() {
     setRetryingPhone(true);
