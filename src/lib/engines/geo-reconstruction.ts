@@ -530,8 +530,31 @@ async function step7EntityEnrichment(state: PipelineState): Promise<void> {
       }
     }
 
-    // SerpAPI web search for operator
-    if (process.env.SERPAPI_API_KEY && candidateName) {
+    // Direct-scraper sweep first (Abritel + Clévacances + Gîtes), then
+    // fallback web search for anything those don't cover. Avoids paying
+    // SerpAPI for what's essentially platform-internal listing data.
+    if (candidateName) {
+      try {
+        const Router = await import("@/lib/providers/search-router");
+        const listings = await Router.searchByOwnerName({
+          platform: "all",
+          name: candidateName,
+          city,
+          maxListingsPerPlatform: 5,
+        });
+        for (const l of listings.slice(0, 6)) {
+          candidateSources.push({
+            name: l.hostDisplayName ?? l.title,
+            website: l.url,
+          });
+        }
+      } catch {
+        // non-fatal
+      }
+    }
+
+    // Residual generic web search — only when direct scrapers found nothing
+    if (process.env.SERPAPI_API_KEY && candidateName && candidateSources.length < 3) {
       try {
         const query = `"${candidateName}" ${city} location vacances contact`;
         const params = new URLSearchParams({

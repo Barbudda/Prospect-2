@@ -19,7 +19,6 @@ import { SerpAPISearchProvider } from "@/lib/providers/serpapi-search";
 import { BraveSearchProvider } from "@/lib/providers/brave-search";
 import { TavilySearchProvider } from "@/lib/providers/tavily-search";
 import { GooglePlacesProvider } from "@/lib/providers/google-places";
-import { SerpAPIMapsProvider } from "@/lib/providers/serpapi-maps";
 import { HunterProvider } from "@/lib/providers/hunter";
 import { DropcontactProvider } from "@/lib/providers/dropcontact";
 import { extractDomain } from "@/lib/utils/url";
@@ -27,9 +26,13 @@ import { DEFAULT_RUN_CONFIG } from "@/lib/types";
 import { createServiceClient } from "@/lib/supabase/server";
 
 // ─── Provider registries ──────────────────────────────────────────────────
+// SerpAPI generic Google search stays as a fallback for non-platform-specific
+// queries (Mammouth-generated "conciergerie Paris" etc.). The SerpAPI Maps
+// provider has been REMOVED — Google Places Direct is the only local-business
+// provider now.
 
 const SEARCH_PROVIDERS = [new SerpAPISearchProvider(), new BraveSearchProvider(), new TavilySearchProvider()];
-const LOCAL_PROVIDERS = [new GooglePlacesProvider(), new SerpAPIMapsProvider()];
+const LOCAL_PROVIDERS = [new GooglePlacesProvider()];
 const ENRICHMENT_PROVIDERS = [new HunterProvider(), new DropcontactProvider()];
 
 // ─── Logger ───────────────────────────────────────────────────────────────

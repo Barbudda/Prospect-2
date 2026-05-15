@@ -1,5 +1,13 @@
 import type { SearchProvider, SearchResult } from "@/lib/types";
 
+// SerpAPI generic Google search — now used ONLY as a residual fallback for
+// queries that no direct platform scraper can handle. Queries containing a
+// `site:` operator targeting a directly-scraped platform (airbnb, abritel,
+// gites-de-france, clevacances) are rejected here so a developer can't
+// accidentally route through SerpAPI when the router exists.
+
+const SCRAPED_HOSTS = ["airbnb.", "abritel.fr", "gites-de-france.com", "clevacances.com"];
+
 export class SerpAPISearchProvider implements SearchProvider {
   readonly name = "SerpAPI";
 
@@ -14,6 +22,15 @@ export class SerpAPISearchProvider implements SearchProvider {
     limit: number
   ): Promise<SearchResult[]> {
     if (!this.isConfigured()) return [];
+
+    // Refuse queries that target our directly-scraped platforms
+    const siteMatch = query.match(/\bsite:([^\s]+)/i);
+    if (siteMatch && SCRAPED_HOSTS.some((s) => siteMatch[1].toLowerCase().includes(s))) {
+      console.warn(
+        `[SerpAPI] Refused query (use the direct scraper / router instead): ${query.slice(0, 120)}`
+      );
+      return [];
+    }
 
     const params = new URLSearchParams({
       api_key: process.env.SERPAPI_API_KEY!,

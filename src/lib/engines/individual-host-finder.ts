@@ -145,43 +145,60 @@ export async function runIndividualHostFinder(
   maxLeads = 30,
   filters: IndividualHostFilters = {}
 ): Promise<NormalizedLead[]> {
-  if (!process.env.SERPAPI_API_KEY) return [];
-
-  const gl = toGl(country);
-  const hl = gl === "fr" ? "fr" : "en";
-  const isFrance = country.toLowerCase().includes("franc");
   const { superhostOnly = false, minReviews = 0, platform = "all" } = filters;
+  const gl = toGl(country); // used by the Instagram lookup helper below
 
-  // ── Build queries based on platform filter ────────────────────────────────
-  const queries: string[] = [];
+  // ── Direct-scrape Airbnb + Abritel via the router (no SerpAPI site: queries)
+  const directListings: Array<{ url: string; title: string; snippet: string }> = [];
+  const { searchListings } = await import("@/lib/providers/search-router");
 
   if (platform !== "abritel") {
-    queries.push(`site:airbnb.com/rooms "${city}"`);
-    if (isFrance) queries.push(`site:airbnb.fr/rooms "${city}"`);
-    if (superhostOnly) queries.push(`site:airbnb.com/rooms ${city} superhost`);
-    else queries.push(`site:airbnb.com/rooms ${city}`);
+    try {
+      const airbnbHits = await searchListings({
+        platform: "airbnb",
+        city,
+        filters: { superhost: superhostOnly },
+        maxListingsPerPlatform: Math.max(maxLeads * 2, 30),
+      });
+      for (const l of airbnbHits) {
+        directListings.push({
+          url: l.url,
+          title: l.title,
+          snippet: [l.hostDisplayName ?? "", l.title, city].filter(Boolean).join(" · "),
+        });
+      }
+    } catch (err) {
+      console.error("[host-finder] airbnb scrape failed:", err instanceof Error ? err.message : err);
+    }
   }
 
   if (platform !== "airbnb") {
-    queries.push(`site:abritel.fr/location-vacances "${city}" particulier`);
+    try {
+      const abritelHits = await searchListings({
+        platform: "abritel",
+        city,
+        filters: { hostType: "particulier" },
+        maxListingsPerPlatform: Math.max(maxLeads, 20),
+      });
+      for (const l of abritelHits) {
+        directListings.push({
+          url: l.url,
+          title: l.title,
+          snippet: [l.hostDisplayName ?? "particulier", l.title, city].filter(Boolean).join(" · "),
+        });
+      }
+    } catch (err) {
+      console.error("[host-finder] abritel scrape failed:", err instanceof Error ? err.message : err);
+    }
   }
 
   const seen = new Set<string>();
   const rawResults: Array<{ url: string; title: string; snippet: string }> = [];
-
-  for (const q of queries) {
-    const results = await serpSearch(q, gl, hl);
-    for (const r of results) {
-      if (
-        r.url &&
-        !seen.has(r.url) &&
-        (AIRBNB_LISTING_PATTERN.test(r.url) || ABRITEL_LISTING_PATTERN.test(r.url))
-      ) {
-        seen.add(r.url);
-        rawResults.push(r);
-      }
+  for (const r of directListings) {
+    if (r.url && !seen.has(r.url) && (AIRBNB_LISTING_PATTERN.test(r.url) || ABRITEL_LISTING_PATTERN.test(r.url))) {
+      seen.add(r.url);
+      rawResults.push(r);
     }
-    await sleep(800);
   }
 
   // ── Parse each listing into a lead ───────────────────────────────────────

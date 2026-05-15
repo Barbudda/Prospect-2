@@ -15,6 +15,9 @@
 
 import { validateFrenchPhone } from "@/lib/utils/contact-validator";
 import type { ExteriorSignals } from "@/lib/engines/exterior-text-miner";
+import * as Router from "@/lib/providers/search-router";
+import * as Abritel from "@/lib/providers/abritel-scraper";
+import * as Clevacances from "@/lib/providers/clevacances-scraper";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -206,33 +209,15 @@ const OTA_SOURCES = [
 
 type OtaMethod = (typeof OTA_SOURCES)[number]["method"];
 
+// Generic web search now goes through the router's allowlisted fallback,
+// which refuses site:airbnb / site:abritel / site:gites-de-france /
+// site:clevacances queries (those must use the direct scrapers).
 async function serpSearch(
   query: string
 ): Promise<Array<{ url: string; snippet: string; title: string }>> {
-  const key = process.env.SERPAPI_API_KEY;
-  if (!key) return [];
-
   try {
-    const params = new URLSearchParams({
-      api_key: key,
-      engine: "google",
-      q: query,
-      gl: "fr",
-      hl: "fr",
-      num: "5",
-    });
-    const res = await fetch(`https://serpapi.com/search?${params}`, {
-      signal: AbortSignal.timeout(12_000),
-    });
-    if (!res.ok) return [];
-    const data = await res.json() as {
-      organic_results?: Array<{ link?: string; snippet?: string; title?: string }>;
-    };
-    return (data.organic_results ?? []).map((r) => ({
-      url: r.link ?? "",
-      snippet: r.snippet ?? "",
-      title: r.title ?? "",
-    }));
+    const results = await Router.fallbackWebSearch({ q: query, gl: "fr", hl: "fr", num: 5 });
+    return results.map((r) => ({ url: r.url, snippet: r.snippet, title: r.title }));
   } catch {
     return [];
   }
@@ -242,29 +227,69 @@ async function scanOTAPlatforms(
   name: string,
   city: string
 ): Promise<PhoneResult[]> {
-  if (!process.env.SERPAPI_API_KEY) return [];
-
+  if (!name || !city) return [];
   const results: PhoneResult[] = [];
 
-  for (const ota of OTA_SOURCES) {
-    try {
-      const serpResults = await serpSearch(ota.query(name, city));
-      for (const r of serpResults) {
-        const phones = extractPhones(`${r.snippet} ${r.title}`);
-        for (const phone of phones) {
+  // ── Direct-scrape platforms — find owner's listings then read detail pages
+  try {
+    const directHits = await Router.searchByOwnerName({
+      platform: "all",
+      name,
+      city,
+      maxListingsPerPlatform: 5,
+    });
+
+    // For up to the first 3 hits, fetch detail pages to extract phones
+    for (const listing of directHits.slice(0, 3)) {
+      let phone: string | undefined;
+      try {
+        if (listing.source === "abritel") {
+          const det = await Abritel.fetchListingDetail(listing.url);
+          phone = det?.phone;
+        } else if (listing.source === "clevacances") {
+          const det = await Clevacances.fetchListingDetail(listing.url);
+          phone = det?.phone;
+        }
+        // Gîtes de France doesn't typically expose phone on the public page.
+      } catch {
+        // detail fetch errors are non-fatal
+      }
+      if (phone) {
+        const clean = normalizePhone(phone);
+        if (clean) {
           results.push({
-            number: phone,
-            source: ota.source,
-            source_url: r.url,
-            method: ota.method as OtaMethod,
+            number: clean,
+            source: listing.source === "abritel" ? "Abritel" : listing.source === "clevacances" ? "Clévacances" : "Gîtes de France",
+            source_url: listing.url,
+            method: listing.source.replace(/-/g, "_") as OtaMethod,
             confidence: "high",
           });
         }
       }
-      await sleep(400);
-    } catch {
-      // per-platform errors are non-fatal
+      await sleep(200);
     }
+  } catch (err) {
+    console.error("[phone-hunter] direct OTA scan failed:", err instanceof Error ? err.message : err);
+  }
+
+  // ── Leboncoin — allowed via SerpAPI fallback (anti-bot too aggressive for direct scrape)
+  try {
+    const lbcQuery = `site:leboncoin.fr "${city}" location saisonnière "${name}"`;
+    const lbcResults = await serpSearch(lbcQuery);
+    for (const r of lbcResults) {
+      const phones = extractPhones(`${r.snippet} ${r.title}`);
+      for (const phone of phones) {
+        results.push({
+          number: phone,
+          source: "Leboncoin",
+          source_url: r.url,
+          method: "leboncoin",
+          confidence: "high",
+        });
+      }
+    }
+  } catch {
+    // non-fatal
   }
 
   return results;
@@ -678,25 +703,31 @@ export async function huntPhone(input: PhoneHunterInput): Promise<PhoneResult[]>
 
   if (allResults.length > 0) return allResults;
 
-  // Methods 3-5: Run when no phone found yet, prioritising no-website hosts
+  // Methods 3-7: Run when no phone found yet. Early-exit after each method
+  // if we already have a high-confidence validated French phone, to save
+  // API calls on the slower scrapers / web searches.
+  const EARLY_EXIT_THRESHOLD = 1; // any result from high-confidence methods is enough
 
-  // Method 3: Cross-platform OTA scan
+  // Method 3: Cross-platform OTA scan (direct scrapers + Leboncoin fallback)
   if (searchName !== city) {
     add(await scanOTAPlatforms(searchName, city));
     await sleep(400);
   }
+  if (allResults.length >= EARLY_EXIT_THRESHOLD) return allResults;
 
   if (!has_website || allResults.length === 0) {
-    // Method 4: Leboncoin/OTA address search (individual owners post here)
+    // Method 4: Address search (web fallback)
     if (address) {
       add(await searchByAddress(address, city));
       await sleep(400);
     }
+    if (allResults.length >= EARLY_EXIT_THRESHOLD) return allResults;
 
     // Method 5: General web search
     if (searchName !== city) {
       add(await webSearchPhone(searchName, city));
     }
+    if (allResults.length >= EARLY_EXIT_THRESHOLD) return allResults;
   }
 
   // Method 6: Exterior surname search — surname from mailbox/permit + address
@@ -704,6 +735,7 @@ export async function huntPhone(input: PhoneHunterInput): Promise<PhoneResult[]>
     for (const surname of exterior_signals.surnames.slice(0, 2)) {
       add(await searchByExteriorSurname(surname, city, postal_code));
       await sleep(400);
+      if (allResults.length >= EARLY_EXIT_THRESHOLD) return allResults;
     }
   }
 
