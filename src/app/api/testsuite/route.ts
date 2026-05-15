@@ -180,6 +180,34 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as { action?: string };
   const service = createServiceClient();
 
+  if (body.action === "clean_bad_contacts") {
+    const { data: leads } = await service
+      .from("leads")
+      .select("id, email, phone")
+      .or("email.not.is.null,phone.not.is.null");
+    let cleanedEmails = 0;
+    let cleanedPhones = 0;
+    for (const l of leads ?? []) {
+      const updates: { email?: string | null; phone?: string | null } = {};
+      if (l.email && !validateEmail(l.email).valid) {
+        updates.email = null;
+        cleanedEmails++;
+      }
+      if (l.phone && !validateFrenchPhone(l.phone).valid) {
+        updates.phone = null;
+        cleanedPhones++;
+      }
+      if (Object.keys(updates).length > 0) {
+        await service.from("leads").update(updates).eq("id", l.id);
+      }
+    }
+    return NextResponse.json({
+      scanned: leads?.length ?? 0,
+      cleaned_emails: cleanedEmails,
+      cleaned_phones: cleanedPhones,
+    });
+  }
+
   if (body.action === "fix_stuck_runs") {
     const { data, error } = await service
       .from("search_runs")
