@@ -300,7 +300,59 @@ export const dynamic = "force-dynamic";
 export default function VisualPage() {
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState<"mass" | "single">("mass");
+  const [activeTab, setActiveTab] = useState<"mass" | "map" | "single">("mass");
+
+  // ── Map Prospect (Google Places) state ────────────────────────────────────
+  const [mapCity, setMapCity] = useState("");
+  const [mapCountry, setMapCountry] = useState("France");
+  const [mapMax, setMapMax] = useState(10);
+  const [mapStatus, setMapStatus] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [mapError, setMapError] = useState("");
+  const [mapLeads, setMapLeads] = useState<Array<{
+    id?: string;
+    name: string;
+    city: string;
+    address?: string;
+    phone?: string;
+    website?: string;
+    score: number;
+    score_label: string;
+    parcel_ref?: string;
+    saved: boolean;
+    error?: string;
+  }>>([]);
+
+  async function handleMapProspect() {
+    if (!mapCity.trim()) { toast.error("Enter a city"); return; }
+    setMapStatus("running");
+    setMapError("");
+    setMapLeads([]);
+    try {
+      const res = await fetch("/api/map-prospect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ city: mapCity.trim(), country: mapCountry, max_results: mapMax }),
+        signal: AbortSignal.timeout(120_000),
+      });
+      const data = await res.json() as {
+        discovered?: number;
+        saved?: number;
+        leads?: typeof mapLeads;
+        error?: string;
+      };
+      if (!res.ok || data.error) {
+        setMapError(data.error ?? "Discovery failed");
+        setMapStatus("error");
+        return;
+      }
+      setMapLeads(data.leads ?? []);
+      setMapStatus("done");
+      toast.success(`${data.saved} lead${data.saved === 1 ? "" : "s"} saved from Google Maps`);
+    } catch (err) {
+      setMapError(err instanceof Error ? err.message : "Failed");
+      setMapStatus("error");
+    }
+  }
 
   // ── Single mode state ──────────────────────────────────────────────────────
   const [url, setUrl] = useState("");
@@ -562,11 +614,17 @@ export default function VisualPage() {
           Visual Property Intelligence
         </div>
         <h1 className="text-3xl font-bold tracking-tight">
-          {activeTab === "mass" ? "Find operators at scale" : "Identify the real operator"}
+          {activeTab === "mass"
+            ? "Find operators at scale"
+            : activeTab === "map"
+            ? "Find lodgings on the map"
+            : "Identify the real operator"}
           <br />
           <span className="text-muted-foreground font-normal">
             {activeTab === "mass"
               ? "in any city — contacts the hard way"
+              : activeTab === "map"
+              ? "via Google Places + Cadastre"
               : "behind any STR listing"}
           </span>
         </h1>
@@ -574,7 +632,7 @@ export default function VisualPage() {
 
       {/* ── Tab toggle ──────────────────────────────────────────────────────── */}
       <div className="flex rounded-xl border border-border/60 bg-muted/40 p-1 gap-1">
-        {(["mass", "single"] as const).map((tab) => (
+        {(["mass", "map", "single"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -586,6 +644,8 @@ export default function VisualPage() {
           >
             {tab === "mass" ? (
               <><Users className="h-3.5 w-3.5" /> Mass Prospect</>
+            ) : tab === "map" ? (
+              <><MapPin className="h-3.5 w-3.5" /> Map Prospect</>
             ) : (
               <><ScanSearch className="h-3.5 w-3.5" /> Single Analysis</>
             )}
@@ -760,6 +820,202 @@ export default function VisualPage() {
                   { icon: Eye, text: "Vision AI identifies the property" },
                   { icon: MapPin, text: "Cadastre & Pappers find the owner" },
                   { icon: Phone, text: "Phone hunter searches 6 sources" },
+                ].map(({ icon: Icon, text }) => (
+                  <div key={text} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-border/40 bg-muted/30">
+                    <Icon className="h-5 w-5 text-violet-500" />
+                    <span className="text-center leading-tight">{text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      {/* MAP MODE — Google Places + Cadastre                                 */}
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      {activeTab === "map" && (
+        <>
+          <div className="rounded-xl border border-border/60 bg-card p-6 shadow-sm space-y-4">
+            <div className="flex gap-3">
+              <div className="flex-1 space-y-2">
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">City</label>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    className="pl-10"
+                    placeholder="Paris, Nice, Bordeaux…"
+                    value={mapCity}
+                    onChange={(e) => setMapCity(e.target.value)}
+                    disabled={mapStatus === "running"}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleMapProspect(); }}
+                  />
+                </div>
+              </div>
+              <div className="w-32 space-y-2">
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Country</label>
+                <Input
+                  placeholder="France"
+                  value={mapCountry}
+                  onChange={(e) => setMapCountry(e.target.value)}
+                  disabled={mapStatus === "running"}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Lodgings to analyse
+              </label>
+              <div className="flex gap-2">
+                {[5, 10, 15, 20].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setMapMax(n)}
+                    disabled={mapStatus === "running"}
+                    className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors disabled:opacity-50 ${
+                      mapMax === n
+                        ? "border-violet-500/60 bg-violet-500/10 text-violet-600"
+                        : "border-border/60 text-muted-foreground hover:border-border hover:text-foreground"
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <Button
+              onClick={handleMapProspect}
+              disabled={mapStatus === "running"}
+              className="w-full gap-2 bg-violet-600 hover:bg-violet-700 text-white"
+              size="lg"
+            >
+              {mapStatus === "running" ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Querying Google Maps + Cadastre…</>
+              ) : (
+                <><MapPin className="h-4 w-4" /> Find Lodgings in {mapCity || "…"}</>
+              )}
+            </Button>
+          </div>
+
+          {mapStatus === "error" && mapError && (
+            <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-400">
+              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium">Map prospect failed</p>
+                <p className="mt-1 text-red-500/80">{mapError}</p>
+              </div>
+            </div>
+          )}
+
+          {mapLeads.length > 0 && (
+            <>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-xl border border-border/40 bg-muted/20 p-3 text-center">
+                  <div className="text-2xl font-bold tabular-nums">{mapLeads.length}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Found</div>
+                </div>
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-center">
+                  <div className="text-2xl font-bold tabular-nums text-emerald-600">
+                    {mapLeads.filter((l) => l.phone).length}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">With phone</div>
+                </div>
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-center">
+                  <div className="text-2xl font-bold tabular-nums text-amber-600">
+                    {mapLeads.filter((l) => !l.website).length}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">No website</div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-sm font-medium text-muted-foreground">
+                  Lodgings discovered on Google Maps in {mapCity}
+                </p>
+                {mapLeads.map((l, i) => (
+                  <div key={`${l.id ?? l.name}-${i}`} className="rounded-xl border border-border/60 bg-card shadow-sm p-4 space-y-3">
+                    <div className="flex items-start gap-3 justify-between">
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {l.score_label && (
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${SCORE_COLORS[l.score_label] ?? "bg-muted text-muted-foreground"}`}>
+                              {l.score_label}
+                            </span>
+                          )}
+                          {!l.website && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-medium flex items-center gap-1">
+                              <Star className="h-3 w-3" />
+                              No website
+                            </span>
+                          )}
+                          {l.parcel_ref && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 font-medium flex items-center gap-1">
+                              <Building2 className="h-3 w-3" />
+                              Parcel {l.parcel_ref}
+                            </span>
+                          )}
+                        </div>
+                        <p className="font-semibold text-sm leading-tight">{l.name}</p>
+                        {l.address && (
+                          <p className="text-xs text-muted-foreground flex items-center gap-1">
+                            <MapPin className="h-3 w-3 flex-shrink-0" />
+                            {l.address}
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="text-2xl font-bold tabular-nums">{l.score}</div>
+                        <div className="text-xs text-muted-foreground">score</div>
+                      </div>
+                    </div>
+
+                    {l.phone ? (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
+                        <Phone className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+                        <a href={`tel:${l.phone}`} className="font-semibold text-sm text-emerald-700 dark:text-emerald-400 hover:underline">
+                          {l.phone}
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/30 border border-border/30">
+                        <Phone className="h-4 w-4 text-muted-foreground/40 flex-shrink-0" />
+                        <span className="text-xs text-muted-foreground/60">No phone — try retry on the lead detail page</span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      {l.id && (
+                        <Button size="sm" variant="default" className="h-7 text-xs gap-1.5" onClick={() => router.push(`/leads/${l.id}`)}>
+                          <ArrowRight className="h-3 w-3" />
+                          View Lead
+                        </Button>
+                      )}
+                      {l.website && (
+                        <a href={l.website} target="_blank" rel="noopener noreferrer">
+                          <Button size="sm" variant="ghost" className="h-7 text-xs gap-1.5">
+                            <Globe className="h-3 w-3" />
+                            Website
+                          </Button>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {mapStatus === "idle" && mapLeads.length === 0 && (
+            <div className="text-center space-y-4 py-8">
+              <div className="inline-grid grid-cols-2 gap-3 text-xs text-muted-foreground max-w-sm mx-auto">
+                {[
+                  { icon: MapPin, text: "Google Places finds every lodging on the map" },
+                  { icon: Building2, text: "IGN Cadastre locks the exact parcel" },
+                  { icon: Phone, text: "Phone Hunter fills the missing numbers" },
+                  { icon: ShieldCheck, text: "Chain hotels filtered out automatically" },
                 ].map(({ icon: Icon, text }) => (
                   <div key={text} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-border/40 bg-muted/30">
                     <Icon className="h-5 w-5 text-violet-500" />
