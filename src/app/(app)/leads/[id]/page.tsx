@@ -75,6 +75,88 @@ interface RetryResponse {
   };
 }
 
+interface WeirdSignal {
+  code: string;
+  severity: "high" | "medium" | "low";
+  description: string;
+  outreach_hint: string;
+}
+
+interface ContactPath {
+  channel: string;
+  target: string;
+  source: string;
+  risk_level: "low" | "medium" | "high";
+  lawful_basis: string;
+  consent_required_before_marketing: boolean;
+  recommended_order: number;
+}
+
+interface ReviewSignal {
+  kind: string;
+  severity: "high" | "medium" | "low";
+  description: string;
+  service_hypothesis: string;
+}
+
+interface IntelResponse {
+  weird_signals: WeirdSignal[];
+  contact_paths: ContactPath[];
+  review_signals: ReviewSignal[];
+  cluster: {
+    cluster_key: string;
+    match_type: string;
+    confidence: string;
+    lead_count: number;
+    cities: string[];
+  } | null;
+  relationships: Array<{
+    to_lead_id: string;
+    to_lead_name: string;
+    kind: string;
+    label: string;
+    confidence: string;
+    evidence: string;
+  }>;
+  dvf: {
+    found: boolean;
+    count: number;
+    last_transaction?: {
+      date: string;
+      nature: string;
+      price_eur?: number;
+      property_type?: string;
+      surface_m2?: number;
+      rooms?: number;
+    };
+  } | null;
+  partner_classification: { role: string; is_partner: boolean; confidence: string; reasoning: string };
+  compliance: {
+    is_personal_data: boolean;
+    lawful_basis: string;
+    consent_required_before_marketing: boolean;
+    is_suppressed: boolean;
+    retention_date: string;
+    notes: string[];
+  };
+  dossier?: {
+    summary: string;
+    why_this_matters: string;
+    estimated_operator_type: string;
+    suggested_offer: string;
+    recommended_next_action: string;
+    outreach_drafts: {
+      email_subject?: string;
+      email_body?: string;
+      linkedin?: string;
+      contact_form?: string;
+      postal?: string;
+      partner_intro?: string;
+    };
+    pain_points: string[];
+  };
+}
+
 interface LeadDetail {
   id: string;
   primary_name: string;
@@ -231,6 +313,31 @@ export default function LeadDetailPage() {
   const [retryResult, setRetryResult] = useState<RetryResponse | null>(null);
   const [auditing, setAuditing] = useState(false);
   const [audit, setAudit] = useState<WebsiteAuditResponse | null>(null);
+  const [loadingIntel, setLoadingIntel] = useState(false);
+  const [intel, setIntel] = useState<IntelResponse | null>(null);
+  const [loadingDossier, setLoadingDossier] = useState(false);
+
+  async function loadIntel(includeDossier: boolean) {
+    if (includeDossier) setLoadingDossier(true);
+    else setLoadingIntel(true);
+    try {
+      const res = await fetch(`/api/leads/${id}/intel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ include_dossier: includeDossier }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Error ${res.status}`);
+      }
+      setIntel((await res.json()) as IntelResponse);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Intel load failed");
+    } finally {
+      setLoadingIntel(false);
+      setLoadingDossier(false);
+    }
+  }
 
   async function runWebsiteAudit() {
     setAuditing(true);
@@ -501,6 +608,205 @@ export default function LeadDetailPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Intelligence Hub ─────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-2 flex flex-row items-center justify-between">
+          <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Intelligence Hub
+          </CardTitle>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => loadIntel(false)}
+              disabled={loadingIntel || loadingDossier}
+              className="h-7 text-xs gap-1.5"
+            >
+              {loadingIntel ? (
+                <><Loader2 className="h-3 w-3 animate-spin" /> Scanning…</>
+              ) : (
+                <>Scan all signals</>
+              )}
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => loadIntel(true)}
+              disabled={loadingIntel || loadingDossier}
+              className="h-7 text-xs gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
+            >
+              {loadingDossier ? (
+                <><Loader2 className="h-3 w-3 animate-spin" /> Generating dossier…</>
+              ) : (
+                <>Generate dossier</>
+              )}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!intel && (
+            <p className="text-xs text-muted-foreground">
+              Scan all signals to surface weird-signal flags, contact paths, review-intelligence hints, operator-cluster membership, public DVF property history, and compliance posture. Generate dossier additionally runs the Mammouth synthesis + multi-channel outreach drafts.
+            </p>
+          )}
+
+          {intel?.dossier && (
+            <div className="rounded-lg border border-violet-500/30 bg-violet-500/5 p-4 space-y-2">
+              <h4 className="text-sm font-semibold text-violet-700 dark:text-violet-400">Dossier</h4>
+              <p className="text-sm font-medium">{intel.dossier.summary}</p>
+              <p className="text-xs text-muted-foreground">{intel.dossier.why_this_matters}</p>
+              <div className="text-xs"><span className="text-muted-foreground">Operator type:</span> <span className="font-medium">{intel.dossier.estimated_operator_type}</span></div>
+              <div className="text-xs"><span className="text-muted-foreground">Suggested offer:</span> {intel.dossier.suggested_offer}</div>
+              <div className="text-xs"><span className="text-muted-foreground">Next action:</span> {intel.dossier.recommended_next_action}</div>
+
+              {intel.dossier.pain_points.length > 0 && (
+                <div className="pt-2">
+                  <div className="text-xs font-semibold uppercase text-muted-foreground mb-1">Pain points</div>
+                  <ul className="text-xs space-y-0.5 list-disc list-inside text-muted-foreground">
+                    {intel.dossier.pain_points.map((p, i) => <li key={i}>{p}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              <div className="pt-3 space-y-3">
+                <div className="text-xs font-semibold uppercase text-muted-foreground">Outreach drafts</div>
+                {intel.dossier.outreach_drafts.email_subject && (
+                  <div className="rounded bg-background/60 border border-border/30 p-2 text-xs space-y-1">
+                    <div className="font-mono text-[10px] text-muted-foreground uppercase">Email</div>
+                    <div className="font-medium">Subject: {intel.dossier.outreach_drafts.email_subject}</div>
+                    <div className="whitespace-pre-wrap text-muted-foreground">{intel.dossier.outreach_drafts.email_body}</div>
+                    <Button variant="ghost" size="sm" className="h-6 text-[10px] mt-1" onClick={() => {
+                      navigator.clipboard.writeText(`Subject: ${intel.dossier!.outreach_drafts.email_subject}\n\n${intel.dossier!.outreach_drafts.email_body}`);
+                      toast.success("Copied");
+                    }}>
+                      <Copy className="h-3 w-3 mr-1" />Copy
+                    </Button>
+                  </div>
+                )}
+                {intel.dossier.outreach_drafts.linkedin && (
+                  <div className="rounded bg-background/60 border border-border/30 p-2 text-xs">
+                    <div className="font-mono text-[10px] text-muted-foreground uppercase mb-1">LinkedIn</div>
+                    <div className="whitespace-pre-wrap">{intel.dossier.outreach_drafts.linkedin}</div>
+                  </div>
+                )}
+                {intel.dossier.outreach_drafts.postal && (
+                  <div className="rounded bg-background/60 border border-border/30 p-2 text-xs">
+                    <div className="font-mono text-[10px] text-muted-foreground uppercase mb-1">Postal letter</div>
+                    <div className="whitespace-pre-wrap">{intel.dossier.outreach_drafts.postal}</div>
+                  </div>
+                )}
+                {intel.dossier.outreach_drafts.partner_intro && (
+                  <div className="rounded bg-background/60 border border-border/30 p-2 text-xs">
+                    <div className="font-mono text-[10px] text-muted-foreground uppercase mb-1">Partner intro</div>
+                    <div className="whitespace-pre-wrap">{intel.dossier.outreach_drafts.partner_intro}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {intel && intel.weird_signals.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Opportunity signals ({intel.weird_signals.length})</h4>
+              <div className="space-y-1.5">
+                {intel.weird_signals.slice(0, 8).map((s) => (
+                  <div key={s.code} className={`flex items-start gap-2 px-3 py-2 rounded-lg border text-xs ${
+                    s.severity === "high" ? "border-red-500/30 bg-red-500/5 text-red-700 dark:text-red-400"
+                    : s.severity === "medium" ? "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-400"
+                    : "border-border/40 bg-muted/30 text-muted-foreground"
+                  }`}>
+                    <span className="font-mono text-[10px] uppercase shrink-0 mt-0.5">{s.severity}</span>
+                    <div>
+                      <div>{s.description}</div>
+                      <div className="opacity-70 mt-0.5">→ {s.outreach_hint}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {intel?.cluster && intel.cluster.lead_count >= 2 && (
+            <div className="rounded-lg border border-violet-500/30 bg-violet-500/5 p-3 text-xs">
+              <div className="font-semibold text-violet-700 dark:text-violet-400">
+                Part of an operator cluster: {intel.cluster.lead_count} properties
+              </div>
+              <div className="text-muted-foreground mt-0.5">
+                Matched on <span className="font-mono">{intel.cluster.match_type}</span> · {intel.cluster.confidence} confidence
+                {intel.cluster.cities.length > 1 && ` · ${intel.cluster.cities.length} cities`}
+              </div>
+            </div>
+          )}
+
+          {intel?.dvf?.found && intel.dvf.last_transaction && (
+            <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 text-xs">
+              <div className="font-semibold text-blue-700 dark:text-blue-400">DVF property history</div>
+              <div className="text-muted-foreground mt-1">
+                Last transaction {intel.dvf.last_transaction.date} — {intel.dvf.last_transaction.nature}
+                {intel.dvf.last_transaction.price_eur ? ` · €${intel.dvf.last_transaction.price_eur.toLocaleString()}` : ""}
+                {intel.dvf.last_transaction.property_type ? ` · ${intel.dvf.last_transaction.property_type}` : ""}
+                {intel.dvf.last_transaction.surface_m2 ? ` · ${intel.dvf.last_transaction.surface_m2} m²` : ""}
+                {intel.dvf.last_transaction.rooms ? ` · ${intel.dvf.last_transaction.rooms} rooms` : ""}
+              </div>
+              <div className="text-[10px] text-muted-foreground mt-1">{intel.dvf.count} total transactions found within 30m of the cadastre parcel.</div>
+            </div>
+          )}
+
+          {intel && intel.review_signals.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Amenity-gap hypotheses ({intel.review_signals.length})</h4>
+              <ul className="text-xs space-y-0.5 list-disc list-inside text-muted-foreground">
+                {intel.review_signals.slice(0, 5).map((s) => (
+                  <li key={s.kind}>{s.description} <span className="opacity-60">→ {s.service_hypothesis}</span></li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {intel && intel.contact_paths.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Lawful contact paths</h4>
+              <div className="space-y-1">
+                {intel.contact_paths.slice(0, 5).map((p, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs border border-border/30 rounded px-2 py-1.5">
+                    <span className="font-mono text-[10px] text-muted-foreground">#{p.recommended_order}</span>
+                    <span className="font-medium">{p.channel}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                      p.risk_level === "low" ? "bg-emerald-500/10 text-emerald-600"
+                      : p.risk_level === "medium" ? "bg-amber-500/10 text-amber-600"
+                      : "bg-red-500/10 text-red-600"
+                    }`}>{p.risk_level}-risk</span>
+                    {p.consent_required_before_marketing && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600">consent required</span>
+                    )}
+                    <span className="text-muted-foreground truncate flex-1">{p.target}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {intel?.compliance && (
+            <div className={`rounded-lg border p-3 text-xs ${
+              intel.compliance.is_suppressed ? "border-red-500/30 bg-red-500/5"
+              : intel.compliance.consent_required_before_marketing ? "border-amber-500/30 bg-amber-500/5"
+              : "border-emerald-500/30 bg-emerald-500/5"
+            }`}>
+              <div className="font-semibold uppercase text-muted-foreground mb-1">Compliance posture</div>
+              <div>{intel.compliance.lawful_basis}</div>
+              {intel.compliance.notes.length > 0 && (
+                <ul className="mt-1 list-disc list-inside text-muted-foreground">
+                  {intel.compliance.notes.map((n, i) => <li key={i}>{n}</li>)}
+                </ul>
+              )}
+              <div className="text-[10px] text-muted-foreground mt-1">
+                Retention until {new Date(intel.compliance.retention_date).toLocaleDateString()}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Intelligence Layer */}
       {(lead.opportunity_score != null || lead.scale_score != null || lead.intent_score != null) && (

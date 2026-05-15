@@ -19,6 +19,7 @@ import { huntPhone, type PhoneResult } from "@/lib/engines/phone-hunter";
 import { mineExteriorSignals, type ExteriorSignals } from "@/lib/engines/exterior-text-miner";
 import { validatePublicUrl } from "@/lib/utils/ssrf";
 import type { VisionAnnotation } from "@/lib/providers/google-vision";
+import * as DVF from "@/lib/providers/dvf";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -57,6 +58,7 @@ interface PipelineState {
   // Step 6 output
   parcel?: import("@/lib/types").CadastralParcel;
   address?: string;
+  dvf?: import("@/lib/providers/dvf").DVFLookupResult;
 
   // Step 7 output
   operator?: import("@/lib/types").ReconstructedOperator;
@@ -426,6 +428,16 @@ async function step6ParcelMatching(state: PipelineState): Promise<void> {
 
     state.parcel = parcel ?? undefined;
     state.address = geocode?.label;
+
+    // DVF — public French real estate transaction history at this GPS.
+    // Useful for property-tier signal + last-transaction-date proxy for owner
+    // tenure. Personal names are NOT in the public dataset (Etalab anonymises).
+    try {
+      const dvf = await DVF.lookupByCoords(hypothesis.latitude, hypothesis.longitude, 30);
+      if (dvf.found) state.dvf = dvf;
+    } catch {
+      // non-fatal
+    }
 
     if (parcel && Mammouth.isConfigured()) {
       // Mammouth validates spatial consistency
