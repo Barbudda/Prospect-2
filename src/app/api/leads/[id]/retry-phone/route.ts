@@ -81,6 +81,7 @@ export async function POST(
       city: lead.city,
       country: lead.country,
       has_website: Boolean(lead.website_url),
+      website_url: lead.website_url ?? undefined,
       latitude: detectedLocation?.latitude,
       longitude: detectedLocation?.longitude,
       postal_code: postalCode,

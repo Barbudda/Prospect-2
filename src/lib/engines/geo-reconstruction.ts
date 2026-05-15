@@ -733,6 +733,7 @@ async function step8_5PhoneHunter(state: PipelineState): Promise<void> {
       place_id: placeId,
       siret,
       has_website: hasWebsite,
+      website_url: state.operator?.website ?? state.matchedPlace?.website ?? undefined,
       latitude: state.bestHypothesis?.latitude,
       longitude: state.bestHypothesis?.longitude,
       postal_code: postalCode,

@@ -44,6 +44,10 @@ export interface PhoneHunterInput {
   place_id?: string;
   siret?: string;
   has_website: boolean;
+  // Website URL — when present, phone hunter crawls it directly. This is the
+  // single highest-value signal for "operators who literally write their
+  // phone number on their site". Method 1.5.
+  website_url?: string;
   // GPS coordinates from geo-reconstruction — unlock address-based searches
   latitude?: number;
   longitude?: number;
@@ -78,6 +82,54 @@ function bestConfidence(method: string): "high" | "medium" | "low" {
   if (method === "google_maps" || method === "recherche_entreprises") return "high";
   if (method === "abritel" || method === "gites_de_france" || method === "leboncoin") return "high";
   return "low";
+}
+
+// ─── Method 1.5: Crawl the operator's own website ───────────────────────────
+//
+// The single most-overlooked phone source: many operators literally write
+// their number on their homepage / contact page. We crawl up to 8 common
+// paths (homepage + /contact, /contactez-nous, /a-propos, /mentions-legales,
+// /legal, etc.) with strict French phone validation. Highest confidence
+// because the operator put the number there themselves.
+
+async function scanOperatorWebsite(url: string): Promise<PhoneResult[]> {
+  if (!url) return [];
+  try {
+    // Lazy import to avoid circular dep (contact-extractor uses validators
+    // that import from this file's neighbours).
+    const { extractContactsFromWebsite } = await import("@/lib/engines/contact-extractor");
+    const contacts = await extractContactsFromWebsite(url, {
+      maxPages: 8,
+      timeoutMs: 12_000,
+    });
+    if (!contacts?.phones?.length) return [];
+
+    const results: PhoneResult[] = [];
+    for (const p of contacts.phones) {
+      // Use whichever of raw / normalized actually passes our strict validator
+      const candidates = [p.normalized, p.raw].filter(Boolean) as string[];
+      let clean: string | null = null;
+      for (const c of candidates) {
+        const v = normalizePhone(c);
+        if (v) {
+          clean = v;
+          break;
+        }
+      }
+      if (!clean) continue;
+      results.push({
+        number: clean,
+        source: "Operator website",
+        source_url: p.source,
+        method: "operator_website",
+        confidence: p.confidence === "high" ? "high" : "medium",
+      });
+    }
+    return results;
+  } catch (err) {
+    console.error("[phone-hunter] scanOperatorWebsite failed:", err instanceof Error ? err.message : err);
+    return [];
+  }
 }
 
 // ─── Method 1: Google Maps Place Details ─────────────────────────────────────
@@ -635,6 +687,7 @@ export async function huntPhone(input: PhoneHunterInput): Promise<PhoneResult[]>
     place_id,
     siret,
     has_website,
+    website_url,
     latitude,
     longitude,
     postal_code,
@@ -677,6 +730,13 @@ export async function huntPhone(input: PhoneHunterInput): Promise<PhoneResult[]>
   if (place_id) {
     const r = await getPlacePhone(place_id);
     if (r) add([r]);
+  }
+
+  // Method 1.5: Crawl the operator's own website — many operators literally
+  // print their phone on their homepage / contact page. Strictly validated.
+  if (website_url) {
+    add(await scanOperatorWebsite(website_url));
+    if (allResults.length > 0) return allResults;
   }
 
   if (allResults.length > 0) return allResults; // Got it from Maps — done

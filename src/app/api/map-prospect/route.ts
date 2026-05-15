@@ -210,8 +210,9 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // If no phone from Places, hunt one using the GPS we just resolved
-        if (!phone && lat && lon) {
+        // If no phone from Places, hunt one. Now also crawls d.website which
+        // is the highest-value source: phone printed on the operator's own page.
+        if (!phone) {
           try {
             const hunted = await huntPhone({
               operator_name: d.name,
@@ -220,11 +221,12 @@ export async function POST(req: NextRequest) {
               country,
               place_id: d.place_id,
               has_website: Boolean(d.website),
-              latitude: lat,
-              longitude: lon,
+              website_url: d.website ?? undefined,
+              latitude: lat ?? undefined,
+              longitude: lon ?? undefined,
               postal_code: postalCode,
             });
-            const top = hunted.find((p) => (p.validation_score ?? 0) >= 20);
+            const top = hunted.find((p) => (p.validation_score ?? 0) >= 20) ?? hunted[0];
             if (top) phone = top.number;
           } catch {
             // non-fatal
