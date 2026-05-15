@@ -316,6 +316,43 @@ export default function LeadDetailPage() {
   const [loadingIntel, setLoadingIntel] = useState(false);
   const [intel, setIntel] = useState<IntelResponse | null>(null);
   const [loadingDossier, setLoadingDossier] = useState(false);
+  const [schedulingTask, setSchedulingTask] = useState(false);
+  const [scanningNews, setScanningNews] = useState(false);
+
+  async function scheduleFollowUp() {
+    const title = window.prompt("Follow-up title?", "Follow up with this lead");
+    if (!title) return;
+    const dueStr = window.prompt("Due date (YYYY-MM-DD)?", new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));
+    if (!dueStr) return;
+    setSchedulingTask(true);
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lead_id: id, title, due_at: new Date(dueStr).toISOString(), kind: "follow_up" }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Failed");
+      toast.success("Follow-up scheduled");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setSchedulingTask(false);
+    }
+  }
+
+  async function scanPress() {
+    setScanningNews(true);
+    try {
+      const res = await fetch(`/api/leads/${id}/news`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      toast.success(`${data.count} press mention${data.count === 1 ? "" : "s"} found`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setScanningNews(false);
+    }
+  }
 
   async function loadIntel(includeDossier: boolean) {
     if (includeDossier) setLoadingDossier(true);
@@ -615,7 +652,7 @@ export default function LeadDetailPage() {
           <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
             Intelligence Hub
           </CardTitle>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button
               variant="outline"
               size="sm"
@@ -641,6 +678,12 @@ export default function LeadDetailPage() {
               ) : (
                 <>Generate dossier</>
               )}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={scanPress} disabled={scanningNews} className="h-7 text-xs">
+              {scanningNews ? "…" : "Press scan"}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={scheduleFollowUp} disabled={schedulingTask} className="h-7 text-xs">
+              {schedulingTask ? "…" : "Schedule follow-up"}
             </Button>
           </div>
         </CardHeader>

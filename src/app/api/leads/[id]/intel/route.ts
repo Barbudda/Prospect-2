@@ -26,6 +26,7 @@ import { classifyLeadAsPartner, type LeadForPartner } from "@/lib/engines/partne
 import * as DVF from "@/lib/providers/dvf";
 import { buildComplianceSummary } from "@/lib/utils/compliance";
 import { generateLeadDossier, type DossierInput } from "@/lib/engines/lead-dossier";
+import { persistSignalsForLead } from "@/lib/engines/signal-persister";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -110,6 +111,12 @@ export async function POST(
     const ownCluster =
       clusters.find((c) => c.lead_ids.includes(id)) ?? null;
     const relations = computeRelations(lead as GraphLead, peerLeads);
+
+    // Persist detected signals to lead_signals for the audit trail
+    await persistSignalsForLead(service, id, {
+      weird_signals: weirdSignals,
+      review_signals: reviewSignals,
+    });
 
     let dossier = null;
     if (body.include_dossier) {

@@ -4,15 +4,17 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
-import { Sun, Moon, LogOut, LayoutDashboard, Users, Settings, History, ScanSearch, Map, Network, BarChart3, ShieldAlert, Handshake } from "lucide-react";
+import { Sun, Moon, LogOut, LayoutDashboard, Users, Settings, History, ScanSearch, Map, Network, BarChart3, ShieldAlert, Handshake, CheckSquare, Sparkles } from "lucide-react";
 
 const NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart3, highlight: true },
   { href: "/visual", label: "Visual", icon: ScanSearch, highlight: true },
   { href: "/maps", label: "Maps", icon: Map, highlight: true },
+  { href: "/ecosystem", label: "Ecosystem", icon: Sparkles, highlight: false },
   { href: "/operators", label: "Operators", icon: Network, highlight: false },
   { href: "/partners", label: "Partners", icon: Handshake, highlight: false },
   { href: "/review", label: "Review", icon: ShieldAlert, highlight: false },
+  { href: "/tasks", label: "Tasks", icon: CheckSquare, highlight: false },
   { href: "/", label: "Search", icon: LayoutDashboard, highlight: false },
   { href: "/runs", label: "Runs", icon: History, highlight: false },
   { href: "/leads", label: "Leads", icon: Users, highlight: false },

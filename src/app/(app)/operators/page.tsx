@@ -252,7 +252,7 @@ export default function OperatorsPage() {
                             </button>
                           ))}
                         </div>
-                        <div className="pt-2 flex gap-2">
+                        <div className="pt-2 flex gap-2 flex-wrap">
                           <Button
                             size="sm"
                             variant="default"
@@ -262,6 +262,35 @@ export default function OperatorsPage() {
                             <ArrowRight className="h-3 w-3" />
                             Open representative
                           </Button>
+                          {cluster.lead_count > 1 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-xs gap-1.5"
+                              onClick={async () => {
+                                if (!confirm(
+                                  `Merge ${cluster.lead_count - 1} duplicate(s) into "${cluster.representative.primary_name}"?\n\n` +
+                                  `Duplicates will be marked status="merged" and their contact data folded into the representative.`
+                                )) return;
+                                const duplicateIds = cluster.lead_ids.filter((id: string) => id !== cluster.representative.id);
+                                const res = await fetch(`/api/leads/${cluster.representative.id}/merge`, {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ duplicate_ids: duplicateIds, strategy: "fill-missing" }),
+                                });
+                                if (!res.ok) {
+                                  const body = await res.json().catch(() => ({}));
+                                  alert(`Merge failed: ${body.error ?? res.status}`);
+                                  return;
+                                }
+                                const data = await res.json();
+                                alert(`Merged ${data.duplicates_merged} duplicate(s). Fields filled: ${data.fields_filled.join(", ") || "(none missing)"}.`);
+                                window.location.reload();
+                              }}
+                            >
+                              Merge {cluster.lead_count - 1} into representative
+                            </Button>
+                          )}
                         </div>
                       </div>
                     )}
