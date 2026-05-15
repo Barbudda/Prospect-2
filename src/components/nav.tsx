@@ -4,10 +4,11 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
-import { Sun, Moon, LogOut, LayoutDashboard, Users, Settings, History, ScanSearch } from "lucide-react";
+import { Sun, Moon, LogOut, LayoutDashboard, Users, Settings, History, ScanSearch, Map } from "lucide-react";
 
 const NAV_LINKS = [
   { href: "/visual", label: "Visual", icon: ScanSearch, highlight: true },
+  { href: "/maps", label: "Maps", icon: Map, highlight: true },
   { href: "/", label: "Search", icon: LayoutDashboard, highlight: false },
   { href: "/runs", label: "Runs", icon: History, highlight: false },
   { href: "/leads", label: "Leads", icon: Users, highlight: false },
