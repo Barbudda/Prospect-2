@@ -111,6 +111,59 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true });
       }
 
+      // ── Direct platform scrapers — reachability ping (HEAD + tiny GET) ──
+      case "Airbnb (direct)":
+      case "Abritel (direct)":
+      case "Clévacances (direct)": {
+        const targetHost =
+          provider === "Airbnb (direct)" ? "https://www.airbnb.com/s/Paris/homes"
+          : provider === "Abritel (direct)" ? "https://www.abritel.fr/results?q=Paris"
+          : "https://www.clevacances.com/fr/recherche?text=Paris";
+        const t0 = Date.now();
+        try {
+          const r = await fetch(targetHost, {
+            method: "GET",
+            headers: {
+              "User-Agent":
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+              Accept: "text/html",
+              "Accept-Language": "fr-FR,fr;q=0.9",
+            },
+            redirect: "follow",
+            signal: AbortSignal.timeout(12_000),
+          });
+          const dur = Date.now() - t0;
+          if (r.status === 429 || r.status === 503) {
+            return NextResponse.json({
+              ok: false,
+              error: `${provider} returned ${r.status} from this IP (bot wall). Production IP may pass. Latency ${dur}ms.`,
+            });
+          }
+          if (!r.ok) {
+            return NextResponse.json({
+              ok: false,
+              error: `${provider} returned HTTP ${r.status}. Latency ${dur}ms.`,
+            });
+          }
+          return NextResponse.json({ ok: true, status: r.status, latency_ms: dur });
+        } catch (e) {
+          return NextResponse.json({
+            ok: false,
+            error: `${provider} unreachable: ${e instanceof Error ? e.message : String(e)}`,
+          });
+        }
+      }
+
+      case "Gîtes de France (fallback)": {
+        if (!process.env.SERPAPI_API_KEY) {
+          return NextResponse.json({
+            ok: false,
+            error: "Gîtes uses a SerpAPI site:gites-de-france.com fallback (search page is JS-rendered). Configure SERPAPI_API_KEY to enable.",
+          });
+        }
+        return NextResponse.json({ ok: true, status: 200, note: "SerpAPI fallback active" });
+      }
+
       default:
         return NextResponse.json({ ok: false, error: `Unknown provider: ${provider}` });
     }

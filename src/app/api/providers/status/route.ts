@@ -40,6 +40,11 @@ const PROVIDERS: Array<{ name: string; type: ProviderStatusInfo["type"]; descrip
   { name: "Google Places", type: "local_business", description: "Google Maps Places API" },
   { name: "Outscraper", type: "local_business", description: "Outscraper Google Maps" },
   { name: "Apify", type: "local_business", description: "Apify Actors (Maps, Search)" },
+  // Direct platform scrapers (no API key, no env var — reachability is the health metric)
+  { name: "Airbnb (direct)", type: "str_data", description: "Direct search-page scraper — parses embedded listingId JSON" },
+  { name: "Abritel (direct)", type: "str_data", description: "Direct HTML scraper — search by city + listing-detail phone extraction" },
+  { name: "Gîtes de France (fallback)", type: "str_data", description: "Search is JS-rendered upstream — uses SerpAPI site:gites-de-france.com fallback" },
+  { name: "Clévacances (direct)", type: "str_data", description: "Direct HTML scraper — /fr/hebergement/<id> pattern" },
   // Enrichment
   { name: "Hunter.io", type: "enrichment", description: "Email finder & verifier" },
   { name: "Dropcontact", type: "enrichment", description: "B2B email enrichment (GDPR)" },
@@ -60,11 +65,24 @@ export async function GET(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const DIRECT_SCRAPERS = new Set([
+    "Airbnb (direct)",
+    "Abritel (direct)",
+    "Clévacances (direct)",
+  ]);
+  const FALLBACK_GATED = new Set(["Gîtes de France (fallback)"]);
+
   const statuses: ProviderStatusInfo[] = PROVIDERS.map((p) => {
     const envKey = getEnvKey(p.name);
     let status: ProviderStatusInfo["status"] = "disabled";
 
-    if (p.type === "str_data") {
+    if (DIRECT_SCRAPERS.has(p.name)) {
+      // No API key — always "configured" because the scraper is code, not a key
+      status = "configured";
+    } else if (FALLBACK_GATED.has(p.name)) {
+      // Reachable only when SerpAPI is configured (since Gîtes search is JS-rendered)
+      status = process.env.SERPAPI_API_KEY ? "configured" : "missing_key";
+    } else if (p.type === "str_data") {
       status = "disabled";
     } else if (envKey && process.env[envKey]) {
       status = "configured";

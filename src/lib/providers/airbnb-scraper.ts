@@ -5,13 +5,17 @@
 // page. This is best-effort against the live DOM — selectors marked
 // "SELECTOR: …" should be re-checked when Airbnb ships layout changes.
 
-import * as cheerio from "cheerio";
 import { scrapeFetch, logScrape } from "./_scraper-utils";
 import type { NormalizedListing } from "./listing-types";
 import { getCached, setCached, makeKey } from "@/lib/cache/search-cache";
 
 const MUSCACHE_RE = /https:\/\/a\d*\.muscache\.com\/im\/(?:pictures|photos)\/[^\s"'<>\\]+\.(?:jpg|jpeg|webp)/gi;
-const LISTING_ID_RE = /\/rooms\/(\d{4,})/g;
+// Listing IDs are NOT in /rooms/<id> hrefs on the search page — that pattern
+// appears 0× in the actual server-rendered HTML (probed 2026-05-15).
+// Airbnb embeds the listing IDs inside its inline JSON state as
+// "listingId":"<digits>" — that's the correct parse path.
+const LISTING_ID_JSON_RE = /"listingId":"(\d{6,})"/g;
+const LISTING_ID_ROOMS_RE = /\/rooms\/(\d{6,})(?:[/?"#]|$)/g;
 
 export interface AirbnbSearchOpts {
   superhostOnly?: boolean;
@@ -48,47 +52,26 @@ export async function searchByCity(
     return [];
   }
 
-  const $ = cheerio.load(res.body);
-  const listingsById = new Map<string, NormalizedListing>();
+  const listingsById = parseAirbnbSearchHtml(res.body, city);
 
-  // SELECTOR: Airbnb listing cards expose anchor hrefs like /rooms/12345
-  const idMatches = res.body.matchAll(LISTING_ID_RE);
+  const out = listingsById.slice(0, cap);
+  setCached(cacheKey, out, ttl);
+  logScrape("airbnb", city, { status: res.status, durationMs: res.durationMs, resultCount: out.length, cacheHit: false });
+  return out;
+}
+
+// Pure parser — exported so the unit tests can hit it directly on the fixture.
+export function parseAirbnbSearchHtml(html: string, city: string): NormalizedListing[] {
   const ids = new Set<string>();
-  for (const m of idMatches) {
-    if (m[1]) ids.add(m[1]);
-  }
+  for (const m of html.matchAll(LISTING_ID_JSON_RE)) ids.add(m[1]);
+  // Fallback: /rooms/<id> hrefs (rare on the search page but present elsewhere)
+  for (const m of html.matchAll(LISTING_ID_ROOMS_RE)) ids.add(m[1]);
 
-  // Photo URLs from the page
-  const photos = Array.from(res.body.matchAll(MUSCACHE_RE)).map((m) => m[0]);
-  // Per listing we'll attribute the first N photos. Crude but a probe is
-  // needed to do better; this is a placeholder that yields IDs even when
-  // the per-card photo grouping breaks.
+  const photos = Array.from(new Set(Array.from(html.matchAll(MUSCACHE_RE)).map((m) => m[0])));
 
-  // Try to extract titles from anchor text near each /rooms/<id>
-  $('a[href*="/rooms/"]').each((_i, a) => {
-    const href = $(a).attr("href") ?? "";
-    const m = href.match(/\/rooms\/(\d+)/);
-    if (!m) return;
-    const id = m[1];
-    if (listingsById.has(id)) return;
-    const title = $(a).find('[id^="title_"], div[aria-label], h2, h3').first().text().trim() ||
-                  $(a).attr("aria-label") ||
-                  "Airbnb listing";
-    listingsById.set(id, {
-      source: "airbnb",
-      sourceListingId: id,
-      url: `https://www.airbnb.com/rooms/${id}`,
-      title: title.slice(0, 200),
-      city,
-      photoUrls: photos.slice(0, 6),
-      scrapedAt: new Date().toISOString(),
-    });
-  });
-
-  // Fill any IDs we found via regex but missed via cheerio
+  const out: NormalizedListing[] = [];
   for (const id of ids) {
-    if (listingsById.has(id)) continue;
-    listingsById.set(id, {
+    out.push({
       source: "airbnb",
       sourceListingId: id,
       url: `https://www.airbnb.com/rooms/${id}`,
@@ -98,10 +81,6 @@ export async function searchByCity(
       scrapedAt: new Date().toISOString(),
     });
   }
-
-  const out = Array.from(listingsById.values()).slice(0, cap);
-  setCached(cacheKey, out, ttl);
-  logScrape("airbnb", city, { status: res.status, durationMs: res.durationMs, resultCount: out.length, cacheHit: false });
   return out;
 }
 

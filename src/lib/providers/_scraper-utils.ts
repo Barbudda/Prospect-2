@@ -5,6 +5,7 @@
 
 import PQueue from "p-queue";
 import { validatePublicUrl } from "@/lib/utils/ssrf";
+import { logRobotsCheck } from "./_robots";
 
 const REAL_BROWSER_UAS = [
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -75,6 +76,9 @@ export async function scrapeFetch(
 
   const host = hostFromUrl(url);
   const queue = queueForHost(host);
+
+  // Best-effort robots.txt log (fire-and-forget — never delays the fetch)
+  void logRobotsCheck(url);
 
   return queue.add(async () => {
     const maxRetries = opts.maxRetries ?? 3;

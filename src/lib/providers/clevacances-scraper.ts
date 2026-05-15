@@ -1,12 +1,14 @@
 // Clévacances direct scraper. Standard server-rendered HTML; cheerio only.
 
-import * as cheerio from "cheerio";
 import { scrapeFetch, logScrape } from "./_scraper-utils";
 import type { NormalizedListing } from "./listing-types";
 import { getCached, setCached, makeKey } from "@/lib/cache/search-cache";
 import { validateFrenchPhone } from "@/lib/utils/contact-validator";
 
-const LISTING_PATH_RE = /\/location[-_]vacances\/[^\/\s"']+\/[^\/\s"']+\/(\d{4,})/gi;
+// Real URL pattern (probed 2026-05-15):
+//   /fr/hebergement/<numericId>-<slug>?adults=0&children=0&babies=0&pets=0
+// Previously assumed /fr/location-vacances/<...>/<id> — that 404s.
+const LISTING_PATH_RE = /\/fr\/hebergement\/(\d{3,})-[a-z0-9\-]+/gi;
 
 export interface ClevacancesSearchOpts {
   ttlSeconds?: number;
@@ -40,55 +42,40 @@ export async function searchByCity(
     return [];
   }
 
-  const $ = cheerio.load(res.body);
+  const listings = parseClevacancesSearchHtml(res.body, city);
+  const out = listings.slice(0, cap);
+  setCached(cacheKey, out, ttl);
+  logScrape("clevacances", city, { status: res.status, durationMs: res.durationMs, resultCount: out.length, cacheHit: false });
+  return out;
+}
+
+// Pure parser — exported for unit tests
+export function parseClevacancesSearchHtml(html: string, city: string): NormalizedListing[] {
   const byId = new Map<string, NormalizedListing>();
 
-  $('a[href*="/location"]').each((_i, a) => {
-    const href = $(a).attr("href") ?? "";
-    const m = href.match(/\/(\d{4,})(?:[\/?#]|$)/);
-    if (!m) return;
+  // Extract listing slugs via the corrected regex pattern, then read the
+  // slug text to use as a placeholder title.
+  for (const m of html.matchAll(LISTING_PATH_RE)) {
     const id = m[1];
-    if (byId.has(id)) return;
-
-    const title =
-      $(a).find('h2, h3, [class*="title"]').first().text().trim() ||
-      $(a).text().trim().slice(0, 120) ||
-      "Clévacances";
-
-    const absUrl = href.startsWith("http") ? href : `https://www.clevacances.com${href}`;
+    if (byId.has(id)) continue;
+    const slugMatch = m[0].match(/\/(\d+)-([a-z0-9\-]+)/);
+    const slug = slugMatch?.[2] ?? "";
+    const title = slug
+      ? slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()).slice(0, 200)
+      : "Clévacances listing";
 
     byId.set(id, {
       source: "clevacances",
       sourceListingId: id,
-      url: absUrl,
-      title: title.slice(0, 200),
+      url: `https://www.clevacances.com${m[0]}`,
+      title,
       city,
       hostType: "particulier",
       photoUrls: [],
       scrapedAt: new Date().toISOString(),
     });
-  });
-
-  for (const m of res.body.matchAll(LISTING_PATH_RE)) {
-    const id = m[1];
-    if (!byId.has(id)) {
-      byId.set(id, {
-        source: "clevacances",
-        sourceListingId: id,
-        url: `https://www.clevacances.com${m[0]}`,
-        title: "Clévacances listing",
-        city,
-        hostType: "particulier",
-        photoUrls: [],
-        scrapedAt: new Date().toISOString(),
-      });
-    }
   }
-
-  const out = Array.from(byId.values()).slice(0, cap);
-  setCached(cacheKey, out, ttl);
-  logScrape("clevacances", city, { status: res.status, durationMs: res.durationMs, resultCount: out.length, cacheHit: false });
-  return out;
+  return Array.from(byId.values());
 }
 
 export async function fetchListingDetail(

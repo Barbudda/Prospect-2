@@ -134,10 +134,7 @@ export interface FallbackWebSearchOpts {
 export async function fallbackWebSearch(
   opts: FallbackWebSearchOpts
 ): Promise<WebSnippet[]> {
-  const key = process.env.SERPAPI_API_KEY;
-  if (!key) return [];
-
-  // Reject queries that contain a site: operator targeting our scraped platforms
+  // Refusal check FIRST — structural error regardless of SerpAPI config.
   const siteMatch = opts.q.match(/\bsite:([^\s]+)/i);
   if (siteMatch) {
     const host = siteMatch[1].toLowerCase();
@@ -150,6 +147,9 @@ export async function fallbackWebSearch(
       console.warn(`[router] fallback web search using non-allowlisted site: ${host}`);
     }
   }
+
+  const key = process.env.SERPAPI_API_KEY;
+  if (!key) return [];
 
   const params = new URLSearchParams({
     api_key: key,

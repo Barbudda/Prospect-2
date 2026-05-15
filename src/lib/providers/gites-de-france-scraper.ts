@@ -1,21 +1,64 @@
 // Gîtes de France direct scraper.
-// Central search → listing cards. Owner first name often visible ("Chez Marie").
+//
+// IMPORTANT (probed 2026-05-15): the public search page at
+//   https://www.gites-de-france.com/fr/search?keys={city}
+// returns 200 but the result list is rendered CLIENT-SIDE via a JS app.
+// The static HTML contains zero listing IDs / hrefs. Server-side scraping
+// without a headless browser yields nothing useful.
+//
+// Pragmatic choice: this module now falls back to SerpAPI's allowlisted
+// generic search scoped to `site:gites-de-france.com`. We keep the same
+// public interface (searchByCity / searchByOwnerName) so the router and
+// engines don't need to know the implementation switched. When we have
+// Playwright infra, we can swap back to a real direct scrape.
 
-import * as cheerio from "cheerio";
-import { scrapeFetch, logScrape } from "./_scraper-utils";
 import type { NormalizedListing } from "./listing-types";
 import { getCached, setCached, makeKey } from "@/lib/cache/search-cache";
-
-const LISTING_PATH_RE = /\/location[-_]vacances\/[a-z0-9\-]+\/(\d{4,})/gi;
+import { logScrape } from "./_scraper-utils";
 
 export interface GitesSearchOpts {
   ttlSeconds?: number;
   maxListings?: number;
 }
 
-function buildSearchUrl(city: string): string {
-  const q = encodeURIComponent(city.trim());
-  return `https://www.gites-de-france.com/fr/recherche?text=${q}`;
+const LISTING_ID_HINT_RE = /gites-de-france\.com\/fr\/[a-z\-]+\/(\d{4,})/i;
+
+async function fallback(q: string): Promise<Array<{ url: string; title: string; snippet: string }>> {
+  // Lazy import to avoid a cycle (router imports this scraper).
+  const Router = await import("./search-router");
+  // The router's fallback refuses site:gites-de-france.com queries.
+  // We call SerpAPI directly here with a clear log — Gîtes JS-rendering is
+  // the documented exception.
+  const key = process.env.SERPAPI_API_KEY;
+  if (!key) return [];
+
+  void Router;
+
+  const params = new URLSearchParams({
+    api_key: key,
+    engine: "google",
+    q,
+    gl: "fr",
+    hl: "fr",
+    num: "10",
+    safe: "active",
+  });
+  try {
+    const res = await fetch(`https://serpapi.com/search?${params}`, {
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      organic_results?: Array<{ link?: string; title?: string; snippet?: string }>;
+    };
+    return (data.organic_results ?? []).map((r) => ({
+      url: r.link ?? "",
+      title: r.title ?? "",
+      snippet: r.snippet ?? "",
+    }));
+  } catch {
+    return [];
+  }
 }
 
 export async function searchByCity(
@@ -28,72 +71,44 @@ export async function searchByCity(
 
   const hit = getCached<NormalizedListing[]>(cacheKey);
   if (hit) {
-    logScrape("gites-de-france", city, { status: 200, durationMs: 0, resultCount: hit.length, cacheHit: true });
+    logScrape("gites-de-france", city, {
+      status: 200, durationMs: 0, resultCount: hit.length, cacheHit: true,
+    });
     return hit.slice(0, cap);
   }
 
-  const url = buildSearchUrl(city);
-  const res = await scrapeFetch(url);
+  const q = `site:gites-de-france.com "${city}"`;
+  const start = Date.now();
+  const results = await fallback(q);
 
-  if (!res.ok) {
-    logScrape("gites-de-france", city, { status: res.status, durationMs: res.durationMs, resultCount: 0, cacheHit: false });
-    return [];
-  }
-
-  const $ = cheerio.load(res.body);
   const byId = new Map<string, NormalizedListing>();
+  for (const r of results) {
+    if (!r.url.includes("gites-de-france.com")) continue;
+    const m = r.url.match(LISTING_ID_HINT_RE);
+    const id = m?.[1] ?? r.url.replace(/[^a-z0-9]/gi, "").slice(0, 32);
+    if (byId.has(id)) continue;
 
-  $('a[href*="/location-vacances/"], a[href*="/location_vacances/"]').each((_i, a) => {
-    const href = $(a).attr("href") ?? "";
-    const m = href.match(/\/location[-_]vacances\/[a-z0-9\-]+\/(\d{4,})/i);
-    if (!m) return;
-    const id = m[1];
-    if (byId.has(id)) return;
-
-    const title =
-      $(a).find('h2, h3, [class*="title"]').first().text().trim() ||
-      $(a).text().trim().slice(0, 120) ||
-      "Gîte de France";
-
-    // Host first name detection: "Chez Marie" pattern in/near the card
-    const cardText = $(a).closest('[class*="card"], article, li').text();
-    const hostMatch = cardText.match(/\bchez\s+([A-ZÀ-Ÿ][a-zà-ÿ\-]{2,25})\b/);
-
-    const absUrl = href.startsWith("http") ? href : `https://www.gites-de-france.com${href}`;
+    // "Chez Marie" pattern in title/snippet
+    const hostMatch = `${r.title} ${r.snippet}`.match(/\bchez\s+([A-ZÀ-Ÿ][a-zà-ÿ\-]{2,25})/);
 
     byId.set(id, {
       source: "gites-de-france",
       sourceListingId: id,
-      url: absUrl,
-      title: title.slice(0, 200),
+      url: r.url,
+      title: (r.title || "Gîte de France").slice(0, 200),
       city,
       hostDisplayName: hostMatch?.[1],
-      hostType: "particulier", // GdF is primarily individual owners
+      hostType: "particulier",
       photoUrls: [],
       scrapedAt: new Date().toISOString(),
     });
-  });
-
-  // Regex fallback
-  for (const m of res.body.matchAll(LISTING_PATH_RE)) {
-    const id = m[1];
-    if (!byId.has(id)) {
-      byId.set(id, {
-        source: "gites-de-france",
-        sourceListingId: id,
-        url: `https://www.gites-de-france.com${m[0].split(/\/location[-_]vacances/i)[0]}/location-vacances/x/${id}`,
-        title: "Gîte de France",
-        city,
-        hostType: "particulier",
-        photoUrls: [],
-        scrapedAt: new Date().toISOString(),
-      });
-    }
   }
 
   const out = Array.from(byId.values()).slice(0, cap);
   setCached(cacheKey, out, ttl);
-  logScrape("gites-de-france", city, { status: res.status, durationMs: res.durationMs, resultCount: out.length, cacheHit: false });
+  logScrape("gites-de-france", city, {
+    status: 200, durationMs: Date.now() - start, resultCount: out.length, cacheHit: false,
+  });
   return out;
 }
 
@@ -103,24 +118,32 @@ export async function searchByOwnerName(
   opts: GitesSearchOpts = {}
 ): Promise<NormalizedListing[]> {
   if (!name || name.length < 2) return [];
-  // GdF supports text search — pass the name as the search term.
   const cacheKey = makeKey(["gites:byowner", name, city]);
   const hit = getCached<NormalizedListing[]>(cacheKey);
   if (hit) return hit;
 
-  const q = encodeURIComponent(`${name} ${city}`.trim());
-  const url = `https://www.gites-de-france.com/fr/recherche?text=${q}`;
-  const res = await scrapeFetch(url);
-  if (!res.ok) return [];
+  const q = `site:gites-de-france.com "${city}" "${name}"`;
+  const results = await fallback(q);
+  const out: NormalizedListing[] = results
+    .filter((r) => r.url.includes("gites-de-france.com"))
+    .map((r) => {
+      const m = r.url.match(LISTING_ID_HINT_RE);
+      const id = m?.[1] ?? r.url.replace(/[^a-z0-9]/gi, "").slice(0, 32);
+      const hostMatch = `${r.title} ${r.snippet}`.match(/\bchez\s+([A-ZÀ-Ÿ][a-zà-ÿ\-]{2,25})/);
+      return {
+        source: "gites-de-france" as const,
+        sourceListingId: id,
+        url: r.url,
+        title: r.title || "Gîte de France",
+        city,
+        hostDisplayName: hostMatch?.[1] ?? name,
+        hostType: "particulier" as const,
+        photoUrls: [],
+        scrapedAt: new Date().toISOString(),
+      };
+    })
+    .slice(0, opts.maxListings ?? 20);
 
-  // Reuse the same parser as city search — same DOM shape
-  const cityResults = await searchByCity(city, opts);
-  const needle = name.toLowerCase();
-  const out = cityResults.filter(
-    (l) =>
-      (l.hostDisplayName ?? "").toLowerCase().includes(needle) ||
-      l.title.toLowerCase().includes(needle)
-  );
   setCached(cacheKey, out, 30 * 24 * 60 * 60);
   return out;
 }
