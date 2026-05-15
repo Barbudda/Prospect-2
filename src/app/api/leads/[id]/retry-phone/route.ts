@@ -66,8 +66,16 @@ export async function POST(
     const exteriorSignals = geo.exterior_signals;
     const postalCode = lead.address?.match(/\b(\d{5})\b/)?.[1];
 
+    // operator_name must be a real entity name, NOT a listing title.
+    // For visual-reconstruction leads where no operator was identified,
+    // primary_name is the listing title (e.g. "Appartement cocooning") —
+    // searching for that returns nothing useful. Skip it when company_name is null.
+    const operatorName =
+      lead.company_name ??
+      (lead.source_type !== "visual_reconstruction" ? lead.primary_name : undefined);
+
     const phones: PhoneResult[] = await huntPhone({
-      operator_name: lead.company_name ?? lead.primary_name,
+      operator_name: operatorName,
       host_name: lead.person_name ?? undefined,
       address: lead.address ?? detectedLocation?.address,
       city: lead.city,
