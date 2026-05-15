@@ -219,6 +219,13 @@ export default function LeadsPage() {
     window.location.href = `/api/export/csv?${params.toString()}`;
   }
 
+  async function exportXLSX() {
+    const params = new URLSearchParams();
+    if (runFilter) params.set("run", runFilter);
+    if (selected.size > 0) params.set("ids", Array.from(selected).join(","));
+    window.location.href = `/api/export/xlsx?${params.toString()}`;
+  }
+
   const totalPages = Math.ceil(total / 50);
 
   return (
@@ -273,7 +280,15 @@ export default function LeadsPage() {
             Refresh
           </Button>
           <Button variant="outline" size="sm" onClick={exportCSV}>
-            Export {selected.size > 0 ? `Selected (${selected.size})` : "CSV"}
+            Export {selected.size > 0 ? `CSV (${selected.size})` : "CSV"}
+          </Button>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={exportXLSX}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+          >
+            Export {selected.size > 0 ? `Excel (${selected.size})` : "Excel"}
           </Button>
         </div>
       </div>

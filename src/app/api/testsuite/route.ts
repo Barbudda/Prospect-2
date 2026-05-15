@@ -87,12 +87,12 @@ export async function GET(req: NextRequest) {
 
   // ── 4. Sample bad leads (revalidate stored email/phone) ────────────────────
   if (action === "sample_bad_contacts") {
+    // Fetch ALL leads — filter in JS to avoid PostgREST .or() syntax pitfalls
     const { data: leads } = await service
       .from("leads")
       .select("id, primary_name, city, email, phone")
-      .or("email.not.is.null,phone.not.is.null")
       .order("created_at", { ascending: false })
-      .limit(200);
+      .limit(1000);
 
     const bad: Array<{
       id: string;
@@ -102,7 +102,10 @@ export async function GET(req: NextRequest) {
       value: string;
       reason: string;
     }> = [];
+    let scanned = 0;
     for (const l of leads ?? []) {
+      if (!l.email && !l.phone) continue;
+      scanned++;
       if (l.email) {
         const r = validateEmail(l.email);
         if (!r.valid)
@@ -114,7 +117,7 @@ export async function GET(req: NextRequest) {
           bad.push({ id: l.id, name: l.primary_name, city: l.city, field: "phone", value: l.phone, reason: r.reason ?? "" });
       }
     }
-    return NextResponse.json({ scanned: leads?.length ?? 0, bad_count: bad.length, samples: bad.slice(0, 30) });
+    return NextResponse.json({ scanned, bad_count: bad.length, samples: bad.slice(0, 50) });
   }
 
   // ── 5. Validator unit-test ─────────────────────────────────────────────────
@@ -270,21 +273,37 @@ export async function POST(req: NextRequest) {
   const service = createServiceClient();
 
   if (body.action === "clean_bad_contacts") {
+    // Fetch ALL leads — filter in JS, avoid PostgREST .or() pitfalls
     const { data: leads } = await service
       .from("leads")
       .select("id, email, phone")
-      .or("email.not.is.null,phone.not.is.null");
+      .limit(5000);
     let cleanedEmails = 0;
     let cleanedPhones = 0;
+    let reformattedEmails = 0;
+    let reformattedPhones = 0;
     for (const l of leads ?? []) {
       const updates: { email?: string | null; phone?: string | null } = {};
-      if (l.email && !validateEmail(l.email).valid) {
-        updates.email = null;
-        cleanedEmails++;
+      if (l.email) {
+        const r = validateEmail(l.email);
+        if (!r.valid) {
+          updates.email = null;
+          cleanedEmails++;
+        } else if (r.cleaned && r.cleaned !== l.email) {
+          updates.email = r.cleaned;
+          reformattedEmails++;
+        }
       }
-      if (l.phone && !validateFrenchPhone(l.phone).valid) {
-        updates.phone = null;
-        cleanedPhones++;
+      if (l.phone) {
+        const r = validateFrenchPhone(l.phone);
+        if (!r.valid) {
+          updates.phone = null;
+          cleanedPhones++;
+        } else if (r.cleaned && r.cleaned !== l.phone) {
+          // Reformat to canonical "06 12 34 56 78" form
+          updates.phone = r.cleaned;
+          reformattedPhones++;
+        }
       }
       if (Object.keys(updates).length > 0) {
         await service.from("leads").update(updates).eq("id", l.id);
@@ -294,6 +313,8 @@ export async function POST(req: NextRequest) {
       scanned: leads?.length ?? 0,
       cleaned_emails: cleanedEmails,
       cleaned_phones: cleanedPhones,
+      reformatted_emails: reformattedEmails,
+      reformatted_phones: reformattedPhones,
     });
   }
 

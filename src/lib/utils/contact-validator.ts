@@ -89,9 +89,31 @@ const JS_METHOD_TLDS = new Set([
 ]);
 
 const SPAM_DOMAINS = new Set([
-  "example.com", "example.org", "test.com", "domain.com", "yourdomain.com",
-  "sentry.io", "wix.com", "wordpress.com", "squarespace.com", "webflow.io",
-  "u003e.com", "u003c.com", "via.placeholder.com", "placeholder.com",
+  "example.com", "example.org", "example.fr", "example.net",
+  "test.com", "test.fr", "domain.com", "yourdomain.com", "email.com",
+  "mail.com", "sentry.io", "wix.com", "wordpress.com", "squarespace.com",
+  "webflow.io", "u003e.com", "u003c.com", "via.placeholder.com",
+  "placeholder.com", "noreply.com", "no-reply.com",
+]);
+
+// Domain SUFFIXES that indicate the email is a CDN/asset URL split badly
+const CDN_DOMAIN_SUFFIXES = [
+  "fbcdn.net",        // st@ic.xx.fbcdn.net — Facebook CDN
+  "cdninstagram.com", // st@ic.cdninstagram.com — Instagram CDN
+  "akamaihd.net",
+  "cloudfront.net",
+  "cloudflare.com",
+  "googleusercontent.com",
+  "gstatic.com",      // fonts.gst@ic.com (split)
+  "ssl-images.com",
+  "cdn.shopify.com",
+  "twimg.com",
+];
+
+// Local parts that are obvious placeholders, not real emails
+const PLACEHOLDER_LOCALS = new Set([
+  "name", "email", "your-email", "youremail", "user", "test", "demo",
+  "support@superhote", // matched as literal once decoded — false positive guard
 ]);
 
 export interface ValidationResult {
@@ -151,6 +173,29 @@ export function validateEmail(raw: string): ValidationResult {
 
   if (SPAM_DOMAINS.has(domain)) return { valid: false, reason: "spam_domain" };
 
+  // Reject CDN/asset domains by suffix (catches `st@ic.xx.fbcdn.net`,
+  // `st@ic.cdninstagram.com`, `fonts.gst@ic.com` and similar)
+  for (const suffix of CDN_DOMAIN_SUFFIXES) {
+    if (domain === suffix || domain.endsWith("." + suffix)) {
+      return { valid: false, reason: `cdn_domain:${suffix}` };
+    }
+  }
+
+  // Reject obvious placeholder locals
+  if (PLACEHOLDER_LOCALS.has(localPart))
+    return { valid: false, reason: `placeholder:${localPart}` };
+
+  // Heuristic: reject locals that look like CSS/JS class fragments
+  // (one or two-letter local + dotted weirdness, e.g. "st@ic.xx.fbcdn.net" already
+  //  caught by CDN; "m@h.random" caught by unknown_tld; "fonts.gst@ic.com" → local
+  //  "fonts.gst" is plausible but domain "ic.com" alone is fishy. Reject 2-char SLDs.)
+  if (sld.length === 2 && tld.length <= 3) {
+    // "ic.com", "x.fr" — almost always parser artefacts. Real 2-letter SLDs are
+    // either national subdomains (co.uk etc., where the tld is 2) or vanity
+    // (q.com), but in our B2B context they're noise.
+    return { valid: false, reason: `short_sld:${sld}.${tld}` };
+  }
+
   return { valid: true, cleaned: decoded };
 }
 
@@ -160,6 +205,9 @@ export function validateEmail(raw: string): ValidationResult {
 
 export function validateFrenchPhone(raw: string): ValidationResult {
   if (!raw || typeof raw !== "string") return { valid: false, reason: "empty" };
+
+  // Raw must not be absurdly long — phones max ~25 chars even fully formatted
+  if (raw.length > 40) return { valid: false, reason: "raw_too_long" };
 
   // Decode entities + URL encoding FIRST — many bad phones are encoded valid ones
   const decoded = decodeAll(raw);
@@ -172,14 +220,25 @@ export function validateFrenchPhone(raw: string): ValidationResult {
   else if (digits.startsWith("0033")) digits = "0" + digits.slice(4);
   else if (digits.startsWith("33") && digits.length === 11) digits = "0" + digits.slice(2);
 
+  // Reject any leftover '+' or non-digits
+  if (!/^\d+$/.test(digits)) return { valid: false, reason: "non_digits" };
+
   // Final form must be exactly 10 digits starting with 0[1-9]
   if (!/^0[1-9]\d{8}$/.test(digits))
     return { valid: false, reason: `format:${digits.length}d` };
 
-  // Reject repeating-digit patterns (0111111111, 0222222222...)
+  // Reject special-rate numbers (08xx) — almost always premium/scam for B2B context.
+  // 09 (VoIP/non-geographic) is kept; legitimate professionals use it.
+  if (digits.startsWith("08")) return { valid: false, reason: "special_rate_08" };
+
+  // Reject repeating-digit patterns (0111111111, 0222222222…)
   if (/^0(\d)\1{8}$/.test(digits)) return { valid: false, reason: "repeating" };
 
-  // Reject sequential patterns (0123456789, 0987654321)
+  // Reject 3+ consecutive identical digits anywhere (e.g. 0123444444) — usually
+  // a parsing artefact, not a real number
+  if (/(\d)\1{5,}/.test(digits)) return { valid: false, reason: "long_run" };
+
+  // Reject sequential patterns
   if (digits === "0123456789" || digits === "0987654321")
     return { valid: false, reason: "sequential" };
 
