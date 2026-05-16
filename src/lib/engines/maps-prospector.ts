@@ -16,6 +16,33 @@ import { generateOutreachAngle } from "@/lib/engines/outreach";
 import { validatePhone, validateEmail } from "@/lib/utils/contact-validator";
 import type { CountryCode } from "libphonenumber-js/max";
 
+// E.164 prefix → "mobile" classification (true) or "landline" (false). When
+// a Google Places result returns a landline we attempt a website crawl to
+// upgrade to a mobile, which is far more valuable for B2B outreach.
+function isMobileE164(e164: string): boolean {
+  // FR mobiles: +33 6 / +33 7
+  if (e164.startsWith("+336") || e164.startsWith("+337")) return true;
+  // GB mobiles: +44 7
+  if (e164.startsWith("+447")) return true;
+  // DE mobiles: +49 15 / +49 16 / +49 17
+  if (e164.startsWith("+4915") || e164.startsWith("+4916") || e164.startsWith("+4917")) return true;
+  // ES mobiles: +34 6 / +34 7
+  if (e164.startsWith("+346") || e164.startsWith("+347")) return true;
+  // IT mobiles: +39 3
+  if (e164.startsWith("+393")) return true;
+  // BE mobiles: +32 4
+  if (e164.startsWith("+324")) return true;
+  // CH mobiles: +41 7
+  if (e164.startsWith("+417")) return true;
+  // NL mobiles: +31 6
+  if (e164.startsWith("+316")) return true;
+  // PT mobiles: +351 9
+  if (e164.startsWith("+3519")) return true;
+  // US/CA: NANP doesn't have a mobile prefix — treat as "could be either"
+  // (false here means "we'll still try a website crawl to find a better one")
+  return false;
+}
+
 // Map our supported country names → ISO codes used by libphonenumber.
 const COUNTRY_NAME_TO_CODE: Record<string, CountryCode> = {
   france: "FR", "united kingdom": "GB", uk: "GB", england: "GB", scotland: "GB",
@@ -185,14 +212,84 @@ export async function runMapsProspect(
   const defaultCountry: CountryCode =
     COUNTRY_NAME_TO_CODE[country.toLowerCase().trim()] ?? "FR";
 
+  // ── Mobile-upgrade time budget ────────────────────────────────────────────
+  // Google Places returns the BUSINESS SWITCHBOARD — almost always a
+  // landline (in Paris: 01-prefix). Mobile numbers are far more valuable
+  // for B2B outreach, and many operators print their mobile on their own
+  // website's contact / mentions-légales page. For each lead where we got
+  // a landline AND have a website, we try a tight crawl to find a mobile.
+  //
+  // Budget: keep the whole engine well under the 60s function limit by
+  // capping per-lead crawl time and bailing on the upgrade pass once we've
+  // used ~40s. The fallback is the landline we already have, so a bail
+  // never costs the user any data — just a missed upgrade.
+  const phoneUpgradeStart = Date.now();
+  const phoneUpgradeBudgetMs = 40_000;
+  const perCrawlMaxPages = 2;
+  const perCrawlTimeoutMs = 5_000;
+  const { extractContactsFromWebsite } = await import("@/lib/engines/contact-extractor");
+
+  async function tryWebsiteMobile(
+    websiteUrl: string,
+    existingPhone: string | undefined
+  ): Promise<{ phone: string; upgraded: boolean; landlineBackup?: string }> {
+    // Already a mobile? Don't waste budget.
+    if (existingPhone && isMobileE164(existingPhone)) {
+      return { phone: existingPhone, upgraded: false };
+    }
+    // Out of time → keep what we have
+    if (Date.now() - phoneUpgradeStart > phoneUpgradeBudgetMs) {
+      return { phone: existingPhone ?? "", upgraded: false, landlineBackup: existingPhone };
+    }
+    try {
+      const contacts = await extractContactsFromWebsite(websiteUrl, {
+        maxPages: perCrawlMaxPages,
+        timeoutMs: perCrawlTimeoutMs,
+      });
+      if (!contacts) return { phone: existingPhone ?? "", upgraded: false, landlineBackup: existingPhone };
+
+      // Prefer the FIRST mobile found. Phones are already E.164 normalised
+      // by the contact extractor.
+      const mobile = contacts.phones?.find((p) => p.normalized && isMobileE164(p.normalized));
+      if (mobile?.normalized) {
+        return {
+          phone: mobile.normalized,
+          upgraded: true,
+          landlineBackup: existingPhone,
+        };
+      }
+      // No mobile on the site → keep the Google Places landline
+      // but mark the site as scanned so the user sees we tried.
+      return { phone: existingPhone ?? "", upgraded: false, landlineBackup: existingPhone };
+    } catch {
+      return { phone: existingPhone ?? "", upgraded: false, landlineBackup: existingPhone };
+    }
+  }
+
   const hits = Array.from(byPlaceId.values()).slice(0, max_leads);
   for (const hit of hits) {
-    // Validate phone — accepts any country, stores E.164 for dedup.
+    // Validate the Google Places phone — accepts any country, stores E.164.
     let cleanedPhone: string | undefined;
     if (hit.phone) {
       const r = validatePhone(hit.phone, defaultCountry);
       if (r.valid && r.e164) cleanedPhone = r.e164;
       else skippedInvalidPhone++;
+    }
+
+    // Upgrade pass: prefer a mobile from the website over the landline.
+    let landlineBackup: string | undefined;
+    let phoneWasUpgradedToMobile = false;
+    if (hit.website) {
+      const upgrade = await tryWebsiteMobile(hit.website, cleanedPhone);
+      if (upgrade.upgraded) {
+        cleanedPhone = upgrade.phone;
+        landlineBackup = upgrade.landlineBackup;
+        phoneWasUpgradedToMobile = true;
+      } else if (!cleanedPhone && upgrade.phone) {
+        // Edge case: had no Google Places phone, but the crawl found
+        // something that isn't a mobile per our list. Still useful.
+        cleanedPhone = upgrade.phone;
+      }
     }
 
     // Skip rows with no website AND no phone — useless leads
@@ -221,7 +318,11 @@ export async function runMapsProspect(
       hit.rating
         ? `Google rating: ${hit.rating}${hit.review_count ? ` (${hit.review_count} reviews)` : ""}.`
         : null,
-      cleanedPhone ? `Phone verified on Google Business Profile.` : null,
+      phoneWasUpgradedToMobile
+        ? `Mobile phone harvested from the operator's website (Google Maps had a landline: ${landlineBackup ?? "n/a"}).`
+        : cleanedPhone
+        ? `Phone verified on Google Business Profile (${isMobileE164(cleanedPhone) ? "mobile" : "landline"}).`
+        : null,
       hasWebsite ? `Website: ${hit.website}.` : null,
       cadastralRef ? `Cadastral parcel: ${cadastralRef}.` : null,
       !hasWebsite ? "No website — high opportunity target." : null,

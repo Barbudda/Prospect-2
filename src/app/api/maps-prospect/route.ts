@@ -9,7 +9,10 @@ import { runMapsProspect } from "@/lib/engines/maps-prospector";
 import { gradeLead } from "@/lib/engines/lead-quality-gate";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// 90s covers: ~10s of Place Details + per-lead website crawl pass that
+// upgrades landlines to mobile when discoverable on the operator's site.
+// The engine itself enforces a 40s upgrade-budget so we always finish in time.
+export const maxDuration = 90;
 
 export async function POST(req: NextRequest) {
   try {
