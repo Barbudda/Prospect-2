@@ -13,7 +13,20 @@ import { GooglePlacesProvider } from "@/lib/providers/google-places";
 import { getParcelByCoords } from "@/lib/providers/ign-cadastre";
 import { scoreLead } from "@/lib/engines/scorer";
 import { generateOutreachAngle } from "@/lib/engines/outreach";
-import { validateFrenchPhone, validateEmail } from "@/lib/utils/contact-validator";
+import { validatePhone, validateEmail } from "@/lib/utils/contact-validator";
+import type { CountryCode } from "libphonenumber-js/max";
+
+// Map our supported country names → ISO codes used by libphonenumber.
+const COUNTRY_NAME_TO_CODE: Record<string, CountryCode> = {
+  france: "FR", "united kingdom": "GB", uk: "GB", england: "GB", scotland: "GB",
+  germany: "DE", deutschland: "DE", spain: "ES", españa: "ES", espana: "ES",
+  italy: "IT", italia: "IT", belgium: "BE", belgique: "BE", switzerland: "CH",
+  suisse: "CH", schweiz: "CH", netherlands: "NL", "pays-bas": "NL", portugal: "PT",
+  ireland: "IE", austria: "AT", denmark: "DK", sweden: "SE", norway: "NO",
+  finland: "FI", poland: "PL", greece: "GR", "united states": "US", usa: "US",
+  canada: "CA", australia: "AU", "new zealand": "NZ", japan: "JP", brazil: "BR",
+  mexico: "MX", luxembourg: "LU", monaco: "MC",
+};
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -166,13 +179,19 @@ export async function runMapsProspect(
   let skippedNoContact = 0;
   let skippedInvalidPhone = 0;
 
+  // Resolve the lookup's country to an ISO code so phones in local form
+  // ("020 7946 0958" for a London listing) validate correctly. Falls back
+  // to FR for unknown country strings (this product is primarily French).
+  const defaultCountry: CountryCode =
+    COUNTRY_NAME_TO_CODE[country.toLowerCase().trim()] ?? "FR";
+
   const hits = Array.from(byPlaceId.values()).slice(0, max_leads);
   for (const hit of hits) {
-    // Validate phone strictly
+    // Validate phone — accepts any country, stores E.164 for dedup.
     let cleanedPhone: string | undefined;
     if (hit.phone) {
-      const r = validateFrenchPhone(hit.phone);
-      if (r.valid && r.cleaned) cleanedPhone = r.cleaned;
+      const r = validatePhone(hit.phone, defaultCountry);
+      if (r.valid && r.e164) cleanedPhone = r.e164;
       else skippedInvalidPhone++;
     }
 

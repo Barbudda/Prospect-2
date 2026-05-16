@@ -9,7 +9,7 @@ import type { NormalizedLead, LeadType } from "@/lib/types";
 import { GooglePlacesProvider } from "@/lib/providers/google-places";
 import { scoreLead } from "@/lib/engines/scorer";
 import { generateOutreachAngle } from "@/lib/engines/outreach";
-import { validateFrenchPhone } from "@/lib/utils/contact-validator";
+import { validatePhone } from "@/lib/utils/contact-validator";
 
 const PARTNER_QUERIES: Array<{ role: string; queries: string[]; lead_type: LeadType }> = [
   { role: "cleaning", queries: ["nettoyage location vacances", "société de ménage", "cleaning service vacation rental"], lead_type: "Property Manager" },
@@ -64,8 +64,8 @@ export async function discoverPartners(opts: PartnerDiscoveryOptions): Promise<P
           if (!placeId || seenPlaceIds.has(placeId)) continue;
           seenPlaceIds.add(placeId);
 
-          const cleanPhone = r.phone ? validateFrenchPhone(r.phone) : null;
-          const phone = cleanPhone?.valid ? cleanPhone.cleaned : undefined;
+          const cleanPhone = r.phone ? validatePhone(r.phone, "FR") : null;
+          const phone = cleanPhone?.valid ? cleanPhone.e164 : undefined;
 
           if (!phone && !r.website) continue; // unreachable partner — skip
 

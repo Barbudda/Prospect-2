@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { extractContactsFromWebsite } from "@/lib/engines/contact-extractor";
-import { validateFrenchPhone } from "@/lib/utils/contact-validator";
+import { validatePhone } from "@/lib/utils/contact-validator";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -129,22 +129,23 @@ export async function POST(req: NextRequest) {
           if (phones.length === 0) {
             reason = "no_phone_on_site";
           } else {
-            // Try each extracted phone through the strict validator. Take
-            // the first one that passes.
+            // Try each extracted phone through the international validator.
+            // The contact extractor already returned them as E.164 in
+            // p.normalized, so the first one that re-validates wins. We
+            // store the E.164 form so dedup and outreach work uniformly
+            // regardless of which country the operator is in.
             let validatorPassed = false;
             for (const p of phones) {
-              const v1 = p.normalized ? validateFrenchPhone(p.normalized) : null;
-              const v2 = validateFrenchPhone(p.raw);
-              if (v1?.valid && v1.cleaned) {
-                phoneFound = v1.cleaned;
-                validatorPassed = true;
-                break;
+              const candidates = [p.normalized, p.raw].filter(Boolean) as string[];
+              for (const c of candidates) {
+                const v = validatePhone(c, "FR");
+                if (v.valid && v.e164) {
+                  phoneFound = v.e164;
+                  validatorPassed = true;
+                  break;
+                }
               }
-              if (v2.valid && v2.cleaned) {
-                phoneFound = v2.cleaned;
-                validatorPassed = true;
-                break;
-              }
+              if (validatorPassed) break;
             }
             if (!validatorPassed) reason = "validator_rejected";
           }

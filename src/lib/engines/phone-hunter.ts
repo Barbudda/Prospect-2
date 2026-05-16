@@ -13,7 +13,7 @@
 // Hosts WITHOUT a website are flagged as priority targets — they are less contacted
 // and more likely to need services like an AI concierge. Their leads get a score boost.
 
-import { validateFrenchPhone } from "@/lib/utils/contact-validator";
+import { validatePhone, findPhonesInText } from "@/lib/utils/contact-validator";
 import type { ExteriorSignals } from "@/lib/engines/exterior-text-miner";
 import * as Router from "@/lib/providers/search-router";
 import * as Abritel from "@/lib/providers/abritel-scraper";
@@ -58,26 +58,19 @@ export interface PhoneHunterInput {
 
 // ─── Phone extraction ─────────────────────────────────────────────────────────
 
-// Matches: 06 12 34 56 78, +33 6 12 34 56 78, 0033612345678, 01.23.45.67.89,
-// and the very common French write-style with parenthesised zero:
-//   +33 (0)5 59 74 10 32  → caught and normalised by the validator.
-const PHONE_RE =
-  /(?:(?:\+|00)33[\s.\-]?(?:\(0\)[\s.\-]?)?[1-9]|0[1-9])(?:[\s.\-]?\d{2}){4}/g;
-
-// Wraps the strict French validator — returns null on invalid input
+// Single-input normaliser. Accepts any country (defaults to FR for ambiguous
+// local-form inputs) and returns the international E.164 form for storage,
+// or null when the input doesn't parse to a real phone.
 function normalizePhone(raw: string): string | null {
-  return validateFrenchPhone(raw).cleaned ?? null;
+  return validatePhone(raw, "FR").e164 ?? null;
 }
 
 function extractPhones(text: string): string[] {
-  const phones: string[] = [];
-  let match: RegExpExecArray | null;
-  const re = new RegExp(PHONE_RE.source, "g");
-  while ((match = re.exec(text)) !== null) {
-    const clean = normalizePhone(match[0]);
-    if (clean && !phones.includes(clean)) phones.push(clean);
-  }
-  return phones;
+  // libphonenumber-driven free-text scan — knows every country's rules and
+  // rejects bare-digit runs / SIREN-shapes / dates via the validator.
+  return findPhonesInText(text, "FR")
+    .map((p) => p.e164)
+    .filter((e): e is string => Boolean(e));
 }
 
 function bestConfidence(method: string): "high" | "medium" | "low" {
@@ -714,11 +707,11 @@ export async function huntPhone(input: PhoneHunterInput): Promise<PhoneResult[]>
   // — highest confidence: they're physically printed on the property
   if (exterior_signals?.visible_phones?.length) {
     for (const rawPhone of exterior_signals.visible_phones) {
-      const validated = validateFrenchPhone(rawPhone);
-      if (validated.valid && validated.cleaned) {
+      const validated = validatePhone(rawPhone, "FR");
+      if (validated.valid && validated.e164) {
         add([
           {
-            number: validated.cleaned,
+            number: validated.e164,
             source: "Visible on exterior signage (OCR)",
             method: "exterior_visible",
             confidence: "high",
