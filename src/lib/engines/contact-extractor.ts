@@ -14,7 +14,7 @@ import {
   findPhonesInText,
   decodeAll,
 } from "@/lib/utils/contact-validator";
-import type { CountryCode } from "libphonenumber-js";
+import type { CountryCode } from "libphonenumber-js/max";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -148,7 +148,7 @@ function tryAddEmail(
   }
 }
 
-function extractEmailsFromHtml(html: string, sourceUrl: string): ExtractedEmail[] {
+export function extractEmailsFromHtml(html: string, sourceUrl: string): ExtractedEmail[] {
   const found = new Map<string, ExtractedEmail>();
 
   // 1. mailto: links — highest confidence, intentional
@@ -185,8 +185,15 @@ function extractEmailsFromHtml(html: string, sourceUrl: string): ExtractedEmail[
 
   // 4. Regex over decoded visible text (medium confidence)
   // Decode HTML entities and URL encoding BEFORE scanning — many real emails
-  // are hidden behind &#64; or %40 to evade scrapers
-  const decoded = decodeAll(html.replace(/<[^>]+>/g, " "));
+  // are hidden behind &#64; or %40 to evade scrapers. Strip <script>/<style>
+  // first so noise like `var st = '@ic.hotjar.com'` and `evolvevac@tionrental`
+  // (constructed via JS string concat in analytics SDKs) never reach the regex.
+  const decoded = decodeAll(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+  );
   const textMatches = decoded.matchAll(EMAIL_REGEX);
   for (const m of textMatches) tryAddEmail(m[0], "medium", sourceUrl, found);
 
@@ -232,6 +239,15 @@ function isValidPhone(raw: string): boolean {
 
 // ─── Phone extraction ────────────────────────────────────────────────────────
 
+// Country fallback list for HIGH-SIGNAL sources where the surrounding markup
+// has already told us "this is a phone" (tel:, JSON-LD telephone field,
+// itemprop=telephone). For those we can safely retry with each major
+// market's default region until libphonenumber accepts a parse — local-form
+// foreign numbers like "020 7946 0958" on a .fr site still get picked up.
+const PHONE_COUNTRY_FALLBACK: CountryCode[] = [
+  "FR", "GB", "DE", "ES", "IT", "BE", "CH", "NL", "PT", "US", "CA", "AU",
+];
+
 function tryAddPhone(
   raw: string,
   confidence: Confidence,
@@ -239,18 +255,32 @@ function tryAddPhone(
   defaultCountry: CountryCode,
   found: Map<string, ExtractedPhone>
 ): void {
-  const result = validatePhone(raw, defaultCountry);
-  if (!result.valid || !result.e164) return;
-  const key = result.e164;
-  const existing = found.get(key);
-  const order: Confidence[] = ["high", "medium", "low"];
-  if (!existing || order.indexOf(confidence) < order.indexOf(existing.confidence)) {
-    found.set(key, {
-      raw: result.cleaned ?? result.international ?? result.e164,
-      normalized: result.e164,
-      confidence,
-      source: sourceUrl,
-    });
+  // Try the source's preferred country first, then walk the fallback list
+  // skipping the one we already attempted. The first parse that validates
+  // wins (libphonenumber refuses to validate ambiguous local forms unless
+  // they actually match that country's numbering plan).
+  const tried = new Set<CountryCode>();
+  const candidates: CountryCode[] = [
+    defaultCountry,
+    ...PHONE_COUNTRY_FALLBACK.filter((c) => c !== defaultCountry),
+  ];
+  for (const country of candidates) {
+    if (tried.has(country)) continue;
+    tried.add(country);
+    const result = validatePhone(raw, country);
+    if (!result.valid || !result.e164) continue;
+    const key = result.e164;
+    const existing = found.get(key);
+    const order: Confidence[] = ["high", "medium", "low"];
+    if (!existing || order.indexOf(confidence) < order.indexOf(existing.confidence)) {
+      found.set(key, {
+        raw: result.cleaned ?? result.international ?? result.e164,
+        normalized: result.e164,
+        confidence,
+        source: sourceUrl,
+      });
+    }
+    return;
   }
 }
 
@@ -276,7 +306,7 @@ function addPhonesFromText(
   }
 }
 
-function extractPhonesFromHtml(html: string, sourceUrl: string): ExtractedPhone[] {
+export function extractPhonesFromHtml(html: string, sourceUrl: string): ExtractedPhone[] {
   const found = new Map<string, ExtractedPhone>();
   const defaultCountry = defaultCountryForUrl(sourceUrl);
 
@@ -322,28 +352,55 @@ function extractPhonesFromHtml(html: string, sourceUrl: string): ExtractedPhone[
   //    real phone lives. We boost confidence for matches found inside footer.
   const footerMatch = html.match(/<footer[\s\S]*?<\/footer>/i);
   if (footerMatch) {
-    const decodedFooter = decodeAll(
+    const decodedFooter = stripNonPhoneNumeric(decodeAll(
       footerMatch[0]
         .replace(/<[^>]+>/g, " ")
-        .replace(/\b\d{1,2}[-\/\.]\d{1,2}[-\/\.](19|20)\d{2}\b/g, " ")
-    );
+    ));
     addPhonesFromText(decodedFooter, "high", sourceUrl, defaultCountry, found);
   }
 
   // 6. libphonenumber-powered free-text scan over the decoded body — strips
   //    HTML, kills date patterns, then hands the rest to findPhonesInText
   //    which knows every country's rules.
-  const decodedBody = decodeAll(
+  const decodedBody = stripNonPhoneNumeric(decodeAll(
     html
       .replace(/<script[\s\S]*?<\/script>/gi, " ")
       .replace(/<style[\s\S]*?<\/style>/gi, " ")
       .replace(/<[^>]+>/g, " ")
-      .replace(/\b\d{1,2}[-\/\.]\d{1,2}[-\/\.](19|20)\d{2}\b/g, " ")
-      .replace(/\b(19|20)\d{2}[-\/\.]\d{1,2}[-\/\.]\d{1,2}\b/g, " ")
-  );
+  ));
   addPhonesFromText(decodedBody, "medium", sourceUrl, defaultCountry, found);
 
-  return Array.from(found.values()).slice(0, 5);
+  // Return phones with confidence-first ordering so the cap doesn't drop the
+  // good ones in favour of body-scan medium-confidence stragglers.
+  const confidenceOrder: Confidence[] = ["high", "medium", "low"];
+  return Array.from(found.values())
+    .sort((a, b) => confidenceOrder.indexOf(a.confidence) - confidenceOrder.indexOf(b.confidence))
+    .slice(0, 10);
+}
+
+// Remove patterns that libphonenumber would otherwise mis-parse as phone
+// numbers. We strip BEFORE the body / footer scan so the cleaned string can
+// be sent to findPhoneNumbersInText directly.
+function stripNonPhoneNumeric(text: string): string {
+  return text
+    // Dates: "2024-01-15" / "15-01-2024" / "2024/01/15"
+    .replace(/\b\d{1,2}[-\/\.]\d{1,2}[-\/\.](19|20)\d{2}\b/g, " ")
+    .replace(/\b(19|20)\d{2}[-\/\.]\d{1,2}[-\/\.]\d{1,2}\b/g, " ")
+    // French SIREN (9 digits) / SIRET (14 digits) / RCS / TVA / NAF / APE
+    // codes — these almost always sit next to phone numbers in mentions
+    // légales blocks and libphonenumber happily mis-parses "123 456 789"
+    // as a Paris landline. Kill the digits whenever they're immediately
+    // preceded by one of these legal-mention keywords.
+    .replace(
+      /\b(?:siren|siret|rcs(?:\s+\w+)?|tva(?:\s+intracommunautaire)?|naf|ape|code\s+ape|n[°o]\s*tva|fr\s*\d{2})[\s:.\-]*[\d\s.\-]{9,20}/gi,
+      " "
+    )
+    // VAT numbers like "FR12345678901" (country code + 11 digits)
+    .replace(/\b[A-Z]{2}\s*\d{8,14}\b/g, " ")
+    // Postal codes followed by a city — "75001 Paris" — keeps the postal
+    // but we keep them intact since they're 5 digits and shouldn't trigger
+    // a phone match anyway. (No-op, listed here for the record.)
+    ;
 }
 
 // Mark the legacy helpers as referenced (kept for backwards-compat in other files)

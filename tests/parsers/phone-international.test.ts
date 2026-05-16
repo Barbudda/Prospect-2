@@ -23,8 +23,8 @@ describe("validatePhone — international coverage", () => {
     { input: "(415) 555-0132", country: "US", defaultCountry: "US" },
     // Switzerland
     { input: "+41 44 668 18 00", country: "CH" },
-    // Belgium
-    { input: "+32 2 123 45 67", country: "BE" },
+    // Belgium — real Brussels exchange so the strict /max build accepts it
+    { input: "+32 2 511 23 45", country: "BE" },
     // Australia
     { input: "+61 2 9374 4000", country: "AU" },
   ];

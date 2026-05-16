@@ -8,12 +8,18 @@
 // legacy `validateFrenchPhone(raw)` stays as a thin wrapper that returns
 // the same shape as before so existing callers don't break.
 
+// Import from `/max` so the full per-country metadata is loaded. The default
+// entry point resolves to the `min` build on some loaders (tsx, certain
+// bundler configs) and the reduced metadata makes calls throw
+// `Cannot read properties of undefined (reading 'hasOwnProperty')` inside
+// `isSupportedCountry` for any region not in the trimmed list. `/max` is
+// the documented import for full worldwide validation.
 import {
   parsePhoneNumberFromString,
   findPhoneNumbersInText,
   type CountryCode,
   type PhoneNumber,
-} from "libphonenumber-js";
+} from "libphonenumber-js/max";
 
 // ─── Decoders ─────────────────────────────────────────────────────────────────
 
