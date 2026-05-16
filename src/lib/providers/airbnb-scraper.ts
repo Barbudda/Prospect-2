@@ -10,12 +10,21 @@ import type { NormalizedListing } from "./listing-types";
 import { getCached, setCached, makeKey } from "@/lib/cache/search-cache";
 
 const MUSCACHE_RE = /https:\/\/a\d*\.muscache\.com\/im\/(?:pictures|photos)\/[^\s"'<>\\]+\.(?:jpg|jpeg|webp)/gi;
-// Listing IDs are NOT in /rooms/<id> hrefs on the search page — that pattern
-// appears 0× in the actual server-rendered HTML (probed 2026-05-15).
-// Airbnb embeds the listing IDs inside its inline JSON state as
-// "listingId":"<digits>" — that's the correct parse path.
+// Listing IDs are NOT in /rooms/<id> hrefs on the search page (re-probed
+// 2026-05-16: 0×). Airbnb embeds search results as `StaySearchResult` JSON
+// blocks; each block carries its listing ID inside picture URLs of the
+// form `/Hosting-<id>/` *and* via the `"listingId":"<id>"` field. Either
+// pattern works, but `Hosting-<id>` is co-located with the rating data
+// (`avgRatingLocalized` like `"4,98 (126)"`) so we parse per-block to
+// pair listing ID, rating, and review count.
 const LISTING_ID_JSON_RE = /"listingId":"(\d{6,})"/g;
 const LISTING_ID_ROOMS_RE = /\/rooms\/(\d{6,})(?:[/?"#]|$)/g;
+const STAY_RESULT_BLOCK_RE = /"__typename":"StaySearchResult"[\s\S]{0,6000}?(?="__typename":"StaySearchResult"|"__typename":"StaysSearch[A-Z])/g;
+const HOSTING_PIC_ID_RE = /\/Hosting-(\d{6,})\//;
+const AVG_RATING_RE = /"avgRatingLocalized":"([\d,.]+)\s*\((\d+)\)"/;
+const AVG_RATING_LABEL_RE = /"avgRatingA11yLabel":"[^"]*?(\d[\d., ]+)\s*(?:commentaires?|avis|reviews?)[^"]*"/i;
+const PRICE_HINT_RE = /"price":"(\d[\d  ., ]{0,12})\s*([€$£])/;
+const SUPERHOST_BADGE_RE = /"badgeType":"SUPERHOST"|"text":"Superh(?:ote|ôte|ost)"/i;
 
 export interface AirbnbSearchOpts {
   superhostOnly?: boolean;
@@ -62,26 +71,83 @@ export async function searchByCity(
 
 // Pure parser — exported so the unit tests can hit it directly on the fixture.
 export function parseAirbnbSearchHtml(html: string, city: string): NormalizedListing[] {
-  const ids = new Set<string>();
-  for (const m of html.matchAll(LISTING_ID_JSON_RE)) ids.add(m[1]);
-  // Fallback: /rooms/<id> hrefs (rare on the search page but present elsewhere)
-  for (const m of html.matchAll(LISTING_ID_ROOMS_RE)) ids.add(m[1]);
+  const scrapedAt = new Date().toISOString();
+  // Pass 1: walk each StaySearchResult block and try to extract the trio of
+  // (listing ID, rating, reviewCount). This is the high-signal path — every
+  // block that yields an ID comes with co-located review data.
+  const seen = new Map<string, NormalizedListing>();
+  for (const blockMatch of html.matchAll(STAY_RESULT_BLOCK_RE)) {
+    const block = blockMatch[0];
+    const idMatch = HOSTING_PIC_ID_RE.exec(block);
+    const id = idMatch?.[1];
+    if (!id || seen.has(id)) continue;
 
-  const photos = Array.from(new Set(Array.from(html.matchAll(MUSCACHE_RE)).map((m) => m[0])));
+    let rating: number | undefined;
+    let reviewCount: number | undefined;
+    const ratingMatch = AVG_RATING_RE.exec(block);
+    if (ratingMatch) {
+      rating = parseFloat(ratingMatch[1].replace(",", "."));
+      reviewCount = parseInt(ratingMatch[2], 10);
+    } else {
+      // Fallback to the accessible label — French/English variant
+      const labelMatch = AVG_RATING_LABEL_RE.exec(block);
+      if (labelMatch) {
+        reviewCount = parseInt(labelMatch[1].replace(/\D/g, ""), 10);
+      }
+    }
 
-  const out: NormalizedListing[] = [];
-  for (const id of ids) {
-    out.push({
+    const isSuperhost = SUPERHOST_BADGE_RE.test(block);
+    const priceMatch = PRICE_HINT_RE.exec(block);
+    const priceHint = priceMatch
+      ? (() => {
+          const amt = parseFloat(priceMatch[1].replace(/[^\d.]/g, "."));
+          return Number.isFinite(amt) ? { amount: amt, currency: priceMatch[2], per: "night" as const } : undefined;
+        })()
+      : undefined;
+
+    const photos = Array.from(block.matchAll(MUSCACHE_RE)).map((m) => m[0]).slice(0, 6);
+
+    // Title is intentionally minimal and per-listing-unique. The structured
+    // review / Superhost signals travel on the dedicated fields below; we
+    // don't bake them into the title so downstream UIs can render a clean
+    // label.
+    seen.set(id, {
       source: "airbnb",
       sourceListingId: id,
       url: `https://www.airbnb.com/rooms/${id}`,
-      title: "Airbnb listing",
+      title: `Airbnb #${id.slice(-6)}`,
       city,
-      photoUrls: photos.slice(0, 6),
-      scrapedAt: new Date().toISOString(),
+      photoUrls: photos,
+      reviewCount,
+      rating,
+      isSuperhost,
+      priceHint,
+      scrapedAt,
     });
   }
-  return out;
+
+  // Pass 2: catch any listing IDs that surface outside StaySearchResult
+  // blocks (e.g. carousel / wishlist sections). These come without review
+  // metadata, so we add them only if we haven't yet collected any results.
+  if (seen.size === 0) {
+    const fallbackIds = new Set<string>();
+    for (const m of html.matchAll(LISTING_ID_JSON_RE)) fallbackIds.add(m[1]);
+    for (const m of html.matchAll(LISTING_ID_ROOMS_RE)) fallbackIds.add(m[1]);
+    const photos = Array.from(html.matchAll(MUSCACHE_RE)).map((m) => m[0]).slice(0, 6);
+    for (const id of fallbackIds) {
+      seen.set(id, {
+        source: "airbnb",
+        sourceListingId: id,
+        url: `https://www.airbnb.com/rooms/${id}`,
+        title: `Airbnb #${id.slice(-6)}`,
+        city,
+        photoUrls: photos,
+        scrapedAt,
+      });
+    }
+  }
+
+  return Array.from(seen.values());
 }
 
 // Airbnb host search by name is not supported via a public endpoint.

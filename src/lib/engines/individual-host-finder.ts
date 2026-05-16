@@ -152,6 +152,11 @@ export async function runIndividualHostFinder(
   const directListings: Array<{ url: string; title: string; snippet: string }> = [];
   const { searchListings } = await import("@/lib/providers/search-router");
 
+  // Carries the rich review/superhost signals discovered by the Airbnb parser
+  // through to the snippet step so we don't lose them when we re-derive
+  // hostName/reviewCount via the generic snippet regex.
+  const airbnbSignals = new Map<string, { reviewCount?: number; rating?: number; isSuperhost?: boolean }>();
+
   if (platform !== "abritel") {
     try {
       const airbnbHits = await searchListings({
@@ -164,7 +169,21 @@ export async function runIndividualHostFinder(
         directListings.push({
           url: l.url,
           title: l.title,
-          snippet: [l.hostDisplayName ?? "", l.title, city].filter(Boolean).join(" · "),
+          // Compose a snippet that the existing parser can mine: it looks for
+          // `(N avis)` for reviewCount and `superhôte` for Superhost status,
+          // both of which we re-inject here from the structured parser data.
+          snippet: [
+            l.hostDisplayName ?? "",
+            l.isSuperhost ? "Superhôte" : "",
+            l.reviewCount ? `${l.rating ?? ""} (${l.reviewCount} avis)`.trim() : "",
+            l.title,
+            city,
+          ].filter(Boolean).join(" · "),
+        });
+        airbnbSignals.set(l.url, {
+          reviewCount: l.reviewCount,
+          rating: l.rating,
+          isSuperhost: l.isSuperhost,
         });
       }
     } catch (err) {
@@ -213,7 +232,12 @@ export async function runIndividualHostFinder(
 
     // Apply targeting filters
     if (superhostOnly && !isSuperhost) continue;
-    if (minReviews > 0 && (reviewCount ?? 0) < minReviews) continue;
+    // Only enforce minReviews when we actually KNOW the review count. The
+    // Airbnb search-page parser doesn't always surface review counts (they
+    // live in a different JSON blob from the listing IDs), so treating a
+    // null reviewCount as "0 reviews" would silently drop every listing
+    // discovered via the direct scrape path.
+    if (minReviews > 0 && reviewCount !== null && reviewCount < minReviews) continue;
 
     const displayName = [hostName, listingTitle].filter(Boolean).join(" — ");
 

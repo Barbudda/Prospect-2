@@ -44,7 +44,11 @@ export async function POST(req: NextRequest) {
       city.trim(),
       country,
       cap * 2, // fetch more, then trim to cap
-      { minReviews: 3, platform: "airbnb" }
+      // minReviews intentionally not set — the Airbnb search-page parser
+      // doesn't reliably surface per-listing review counts, so any non-zero
+      // floor here drops every listing. The host-finder still filters by
+      // hostName/title presence, which is enough.
+      { platform: "airbnb" }
     );
 
     // Superhosts first, then most reviews

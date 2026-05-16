@@ -22,6 +22,10 @@ export interface NormalizedListing {
   email?: string;
   priceHint?: { amount: number; currency: string; per: "night" | "week" };
   photoUrls: string[];
+  // Optional review signals — parsers set these when discoverable.
+  reviewCount?: number;
+  rating?: number;
+  isSuperhost?: boolean;
   scrapedAt: string;       // ISO timestamp
   raw?: unknown;
 }
