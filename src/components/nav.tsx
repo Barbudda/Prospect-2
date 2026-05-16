@@ -34,8 +34,8 @@ export function Nav() {
   const { theme: colorTheme, setTheme: setColorTheme } = useColorTheme();
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const activeSwatch = COLOR_THEMES.find((t) => t.id === colorTheme)?.sample ?? "var(--primary)";
 
-  // Close picker on outside click
   useEffect(() => {
     if (!pickerOpen) return;
     function onClick(e: MouseEvent) {
@@ -56,7 +56,9 @@ export function Nav() {
   return (
     <nav className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex h-14 items-center justify-between gap-6">
+        {/* Three-column grid keeps the nav perfectly centered regardless of how
+            wide the logo or right-side actions become. */}
+        <div className="grid grid-cols-[auto_1fr_auto] items-center h-14 gap-4">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2.5 shrink-0">
             <div className="h-7 w-7 rounded-lg bg-primary flex items-center justify-center shadow-sm">
@@ -65,48 +67,59 @@ export function Nav() {
             <span className="font-semibold text-sm tracking-tight">Prospect</span>
           </Link>
 
-          {/* Nav links */}
-          <div className="flex items-center gap-1">
-            {NAV_LINKS.map(({ href, label, icon: Icon, highlight }) => {
-              const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-                    active && highlight
-                      ? "bg-primary/15 text-primary"
-                      : active
-                      ? "bg-primary/10 text-primary"
-                      : highlight
-                      ? "text-primary hover:bg-primary/10"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {label}
-                </Link>
-              );
-            })}
+          {/* Centered nav links — overflow-x scrolls on narrow screens so the
+              actions on the right never get clipped. */}
+          <div className="flex justify-center min-w-0">
+            <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
+              {NAV_LINKS.map(({ href, label, icon: Icon, highlight }) => {
+                const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-colors whitespace-nowrap shrink-0",
+                      active && highlight
+                        ? "bg-primary/15 text-primary"
+                        : active
+                        ? "bg-primary/10 text-primary"
+                        : highlight
+                        ? "text-primary hover:bg-primary/10"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {label}
+                  </Link>
+                );
+              })}
+            </div>
           </div>
 
-          {/* Right actions */}
-          <div className="flex items-center gap-1 ml-auto">
-            {/* Color theme picker */}
+          {/* Right actions — always pinned to the right edge */}
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Theme picker — shows the active accent as a visible swatch so
+                users can spot it at a glance. */}
             <div ref={pickerRef} className="relative">
               <button
                 onClick={() => setPickerOpen((v) => !v)}
-                className="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                aria-label="Change accent color"
+                className="h-8 pl-1.5 pr-2.5 rounded-lg flex items-center gap-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors border border-border/60"
+                aria-label="Change color theme"
                 aria-haspopup="menu"
                 aria-expanded={pickerOpen}
+                title="Change color theme"
               >
-                <Palette className="h-4 w-4" />
+                <span
+                  className="h-4 w-4 rounded-full ring-1 ring-border/40"
+                  style={{ background: activeSwatch }}
+                  aria-hidden
+                />
+                <Palette className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="hidden sm:inline text-muted-foreground">Theme</span>
               </button>
               {pickerOpen && (
-                <div className="absolute right-0 mt-2 w-48 rounded-xl border border-border/60 bg-popover text-popover-foreground shadow-lg p-1.5 z-50">
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-2 py-1.5">Accent</p>
+                <div className="absolute right-0 mt-2 w-52 rounded-xl border border-border/60 bg-popover text-popover-foreground shadow-lg p-1.5 z-50">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-2 py-1.5">Accent color</p>
                   {COLOR_THEMES.map((t) => {
                     const active = colorTheme === t.id;
                     return (
@@ -114,7 +127,7 @@ export function Nav() {
                         key={t.id}
                         onClick={() => { setColorTheme(t.id as ColorThemeId); setPickerOpen(false); }}
                         className={cn(
-                          "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors",
+                          "w-full flex items-center gap-2.5 px-2 py-2 rounded-md text-sm transition-colors",
                           active ? "bg-muted text-foreground" : "text-foreground hover:bg-muted/60"
                         )}
                       >
@@ -135,7 +148,8 @@ export function Nav() {
             <button
               onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
               className="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-              aria-label="Toggle theme"
+              aria-label="Toggle light / dark"
+              title="Toggle light / dark"
             >
               {resolvedTheme === "dark" ? (
                 <Sun className="h-4 w-4" />
@@ -147,6 +161,7 @@ export function Nav() {
               onClick={signOut}
               className="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
               aria-label="Sign out"
+              title="Sign out"
             >
               <LogOut className="h-4 w-4" />
             </button>

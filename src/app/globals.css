@@ -270,6 +270,10 @@
     background-color: oklch(from var(--primary) l c h / 25%);
     color: var(--foreground);
   }
+  /* Utility: hide scrollbars while keeping scroll behaviour. Used by the
+     nav so overflow-x scroll is silent on narrow screens. */
+  .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
   /* Custom scrollbar in WebKit — quieter, theme-aware */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
