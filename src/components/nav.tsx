@@ -2,9 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useState, useRef, useEffect } from "react";
 import { useTheme } from "next-themes";
+import { useColorTheme, COLOR_THEMES, type ColorThemeId } from "@/components/color-theme-provider";
 import { cn } from "@/lib/utils";
-import { Sun, Moon, LogOut, LayoutDashboard, Users, Settings, History, ScanSearch, Map, Network, BarChart3, ShieldAlert, Handshake, CheckSquare, Sparkles, Activity } from "lucide-react";
+import {
+  Sun, Moon, LogOut, LayoutDashboard, Users, Settings, History, ScanSearch, Map,
+  Network, BarChart3, ShieldAlert, Handshake, CheckSquare, Sparkles, Activity, Palette, Check,
+} from "lucide-react";
 
 const NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart3, highlight: true },
@@ -26,6 +31,19 @@ export function Nav() {
   const pathname = usePathname();
   const router = useRouter();
   const { resolvedTheme, setTheme } = useTheme();
+  const { theme: colorTheme, setTheme: setColorTheme } = useColorTheme();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  // Close picker on outside click
+  useEffect(() => {
+    if (!pickerOpen) return;
+    function onClick(e: MouseEvent) {
+      if (!pickerRef.current?.contains(e.target as Node)) setPickerOpen(false);
+    }
+    window.addEventListener("mousedown", onClick);
+    return () => window.removeEventListener("mousedown", onClick);
+  }, [pickerOpen]);
 
   async function signOut() {
     const { createClient } = await import("@/lib/supabase/client");
@@ -58,11 +76,11 @@ export function Nav() {
                   className={cn(
                     "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
                     active && highlight
-                      ? "bg-violet-500/15 text-violet-600 dark:text-violet-400"
+                      ? "bg-primary/15 text-primary"
                       : active
                       ? "bg-primary/10 text-primary"
                       : highlight
-                      ? "text-violet-600 dark:text-violet-400 hover:bg-violet-500/10"
+                      ? "text-primary hover:bg-primary/10"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
                 >
@@ -75,6 +93,45 @@ export function Nav() {
 
           {/* Right actions */}
           <div className="flex items-center gap-1 ml-auto">
+            {/* Color theme picker */}
+            <div ref={pickerRef} className="relative">
+              <button
+                onClick={() => setPickerOpen((v) => !v)}
+                className="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                aria-label="Change accent color"
+                aria-haspopup="menu"
+                aria-expanded={pickerOpen}
+              >
+                <Palette className="h-4 w-4" />
+              </button>
+              {pickerOpen && (
+                <div className="absolute right-0 mt-2 w-48 rounded-xl border border-border/60 bg-popover text-popover-foreground shadow-lg p-1.5 z-50">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-2 py-1.5">Accent</p>
+                  {COLOR_THEMES.map((t) => {
+                    const active = colorTheme === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => { setColorTheme(t.id as ColorThemeId); setPickerOpen(false); }}
+                        className={cn(
+                          "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors",
+                          active ? "bg-muted text-foreground" : "text-foreground hover:bg-muted/60"
+                        )}
+                      >
+                        <span
+                          className="h-4 w-4 rounded-full shrink-0 ring-1 ring-border/40"
+                          style={{ background: t.sample }}
+                          aria-hidden
+                        />
+                        <span className="flex-1 text-left">{t.label}</span>
+                        {active && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             <button
               onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
               className="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
