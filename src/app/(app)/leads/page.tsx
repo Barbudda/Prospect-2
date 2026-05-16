@@ -309,20 +309,41 @@ export default function LeadsPage() {
             size="sm"
             className="gap-1.5 text-emerald-600 hover:bg-emerald-500/10"
             onClick={async () => {
-              if (!confirm("Crawl up to 25 leads (website but no phone) and backfill phones from their public pages?\nUses the corrected +33 (0)X parser.")) return;
-              const res = await fetch("/api/leads/backfill-phones", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ limit: 25 }),
-              });
-              if (!res.ok) {
-                const b = await res.json().catch(() => ({}));
-                toast.error(b.error ?? "Backfill failed");
-                return;
+              if (!confirm("Crawl up to 10 leads (website but no phone) and backfill phones from their public pages?\nRe-press to continue with the next batch.")) return;
+              toast.info("Backfilling phones — this can take ~50 seconds…");
+              try {
+                const res = await fetch("/api/leads/backfill-phones", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ limit: 10 }),
+                });
+                if (!res.ok) {
+                  const b = await res.json().catch(() => ({}));
+                  toast.error(b.error ?? `Backfill failed (HTTP ${res.status})`);
+                  return;
+                }
+                const d = await res.json() as {
+                  scanned: number;
+                  processed: number;
+                  phones_found: number;
+                  leads_updated: number;
+                  skipped_budget?: number;
+                  bailed_early?: boolean;
+                  elapsed_ms?: number;
+                };
+                const elapsedS = d.elapsed_ms ? Math.round(d.elapsed_ms / 1000) : null;
+                const msg = `Processed ${d.processed}/${d.scanned} · found ${d.phones_found} phones · updated ${d.leads_updated}${elapsedS ? ` · ${elapsedS}s` : ""}`;
+                if (d.bailed_early) {
+                  toast.warning(`${msg} · ${d.skipped_budget ?? 0} skipped (time budget). Press again to continue.`);
+                } else if (d.leads_updated === 0 && d.processed > 0) {
+                  toast.info(`${msg}. No new numbers — sites had nothing parseable.`);
+                } else {
+                  toast.success(msg);
+                }
+                fetchLeads();
+              } catch (err) {
+                toast.error(`Backfill request failed: ${err instanceof Error ? err.message : "network error"}`);
               }
-              const d = await res.json();
-              toast.success(`Scanned ${d.scanned} · found ${d.phones_found} phones · updated ${d.leads_updated} leads`);
-              fetchLeads();
             }}
           >
             Backfill phones
