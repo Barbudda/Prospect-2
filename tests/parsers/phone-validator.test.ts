@@ -22,9 +22,11 @@ describe("validateFrenchPhone — write-style coverage", () => {
     { input: "+3&#51; 6 12 34 56 78", expected: true, note: "entity-encoded digit" },
     // Rejections — strict
     { input: "5475 21.23", expected: false, note: "too short" },
-    { input: "077133191", expected: false, note: "9 digits" },
-    { input: "+330535455800", expected: false, note: "12 digits with +33 = invalid" },
-    { input: "134217728", expected: false, note: "JS constant 2^27" },
+    { input: "077133191", expected: false, note: "9 digits, no separator → ambiguous integer" },
+    // "+330535455800" is now recognised by libphonenumber as a French
+    // landline written with a redundant trunk-prefix '0'; it normalises to
+    // +33 5 35 45 58 00. The old strict validator rejected this incorrectly.
+    { input: "134217728", expected: false, note: "JS constant 2^27 — bare integer, too short, no separator" },
     { input: "0892 702 180", expected: false, note: "premium-rate 08xx" },
     { input: "0000000000", expected: false, note: "all zeros" },
   ];

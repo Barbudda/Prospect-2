@@ -1,7 +1,19 @@
-// Strict contact validators for French B2B leads.
+// Strict contact validators for international B2B leads.
 // Run all extracted emails and phones through these before saving or displaying.
 // Fixes the parsing bugs that polluted the DB with CSS classes, JS code fragments,
 // URL-encoded strings, HTML entities, dates, and other non-contact patterns.
+//
+// Phones: backed by libphonenumber-js (Google's libphonenumber port). The
+// generic `validatePhone(raw, defaultCountry?)` accepts any region; the
+// legacy `validateFrenchPhone(raw)` stays as a thin wrapper that returns
+// the same shape as before so existing callers don't break.
+
+import {
+  parsePhoneNumberFromString,
+  findPhoneNumbersInText,
+  type CountryCode,
+  type PhoneNumber,
+} from "libphonenumber-js";
 
 // ─── Decoders ─────────────────────────────────────────────────────────────────
 
@@ -38,24 +50,40 @@ export function decodeAll(s: string): string {
 
 // ─── Email validation ─────────────────────────────────────────────────────────
 
-// Strict whitelist of real TLDs we accept. French B2B market focus.
-// Rejects fake TLDs like .push, .match, .stars, .cocoonr, .useragent
+// Strict whitelist of real TLDs we accept. Worldwide coverage but still
+// strict enough to reject parsing artefacts like .push, .match, .stars,
+// .cocoonr, .useragent that the regex falsely produces.
 const VALID_TLDS = new Set([
-  // Geographic — Europe + key markets
+  // Europe
   "fr", "com", "org", "net", "eu", "uk", "de", "es", "it", "be", "ch", "nl",
   "lu", "mc", "pt", "ie", "at", "dk", "se", "no", "fi", "pl", "cz", "gr",
-  "ro", "hu", "bg", "hr", "si", "sk", "ee", "lv", "lt", "is",
-  // Geographic — overseas
-  "us", "ca", "au", "nz", "jp", "kr", "br", "mx", "ar", "cl", "co",
+  "ro", "hu", "bg", "hr", "si", "sk", "ee", "lv", "lt", "is", "cy", "mt",
+  "gg", "je", "im", "ad", "al", "ba", "by", "li", "md", "me", "mk", "rs",
+  "sm", "ua", "va",
+  // Americas
+  "us", "ca", "mx", "ar", "br", "cl", "co", "pe", "uy", "py", "ec", "ve",
+  "bo", "cr", "do", "gt", "hn", "ni", "pa", "sv", "cu", "pr",
+  // Asia-Pacific
+  "au", "nz", "jp", "kr", "cn", "hk", "tw", "sg", "my", "th", "vn", "ph",
+  "id", "in", "pk", "bd", "lk", "kh", "la", "mm", "mn", "kz", "uz", "tj",
+  // Middle East
+  "ae", "sa", "il", "tr", "qa", "kw", "om", "bh", "jo", "lb", "ir", "iq",
+  // Africa
+  "za", "ng", "ke", "eg", "ma", "tn", "dz", "gh", "ci", "et", "tz", "ug",
+  "sn", "rw", "cm", "zw", "zm", "mu", "re",
+  // Russia + ex-USSR
+  "ru", "su",
   // Generic
   "io", "co", "app", "dev", "info", "biz", "me", "tv", "name", "pro", "mobi",
   "online", "site", "tech", "digital", "agency", "company", "business",
   "group", "club", "shop", "store", "expert", "guru", "team", "live", "life",
-  "world", "space", "website", "blog", "studio", "design", "media",
+  "world", "space", "website", "blog", "studio", "design", "media", "page",
+  "global", "international", "network", "solutions", "services", "ventures",
   // STR-relevant
-  "travel", "paris", "hotels", "hotel", "rentals", "villas", "villa",
-  "house", "home", "homes", "realty", "estate", "properties", "vacation",
-  "tourism", "holiday", "tours", "city", "guide",
+  "travel", "paris", "london", "berlin", "tokyo", "nyc", "hotels", "hotel",
+  "rentals", "villas", "villa", "house", "home", "homes", "realty", "estate",
+  "properties", "vacation", "vacations", "tourism", "holiday", "holidays",
+  "tours", "city", "guide", "host", "rest", "place", "boutique",
 ]);
 
 // Local-part patterns that betray JS code or CSS classes
@@ -199,63 +227,184 @@ export function validateEmail(raw: string): ValidationResult {
   return { valid: true, cleaned: decoded };
 }
 
-// ─── French phone validation ──────────────────────────────────────────────────
-// Strict: must be exactly 10 digits after normalization, starting with 0[1-9].
-// Accepts: 06 12 34 56 78, +33 6 12 34 56 78, 0033612345678, %2B33..., HTML entities
+// ─── Worldwide phone validation (libphonenumber-js) ───────────────────────────
+// Single source of truth for every phone we keep. Accepts any country, falls
+// back to the caller's hint (or France) when the number is in local form.
+
+export interface PhoneValidationResult {
+  valid: boolean;
+  /** Caller-friendly national format, e.g. "06 12 34 56 78" or "020 7946 0958". */
+  cleaned?: string;
+  /** E.164 form for DB storage / dedup, e.g. "+33612345678". */
+  e164?: string;
+  /** International display form, e.g. "+33 6 12 34 56 78". */
+  international?: string;
+  /** ISO 3166-1 alpha-2 country code parsed by libphonenumber. */
+  country?: CountryCode;
+  reason?: string;
+}
+
+// Numbers we never want to store, regardless of what libphonenumber says.
+// These are not invalid technically but are useless for B2B outreach.
+const PHONE_PATTERN_REJECT: Array<{ re: RegExp; reason: string }> = [
+  { re: /^(\d)\1{6,}$/, reason: "repeating" },              // 8+ identical digits
+  { re: /^0?(19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/, reason: "date_pattern" },
+  { re: /^0?123456789?0?$/, reason: "sequential_asc" },
+  { re: /^0?9876543210?$/, reason: "sequential_desc" },
+];
+
+// FR-only safety net: special-rate prefixes that pass libphonenumber but are
+// commercially useless (premium 08xx, etc.). Other countries have their own
+// equivalents but we only block FR explicitly here — for the rest we trust
+// libphonenumber and let business filters handle the rest.
+function isUselessFrenchNumber(e164: string): { useless: boolean; reason?: string } {
+  if (!e164.startsWith("+33")) return { useless: false };
+  const national = "0" + e164.slice(3);
+  if (/^08\d{8}$/.test(national)) return { useless: true, reason: "special_rate_08" };
+  return { useless: false };
+}
+
+export function validatePhone(
+  raw: string,
+  defaultCountry: CountryCode = "FR"
+): PhoneValidationResult {
+  if (!raw || typeof raw !== "string") return { valid: false, reason: "empty" };
+  if (raw.length > 60) return { valid: false, reason: "raw_too_long" };
+
+  // Decode entities + URL encoding so &#43;33... and %2B33... become +33...
+  let decoded = decodeAll(raw).trim();
+
+  // The very common French write-style "+33 (0)5 59 74 10 32" — libphonenumber
+  // handles it but only when the "(0)" sits in the right spot. Normalise first
+  // so we don't depend on the library's exact tolerance window.
+  decoded = decoded.replace(/(\+|00)(\d{1,3})[\s.\-]*\(0\)/gi, "+$2");
+  // Strip a leading "(0)" used in local form: "(0)5 59 …"
+  decoded = decoded.replace(/^\(0\)/, "");
+  // 00 → + for international prefix
+  decoded = decoded.replace(/^00(\d)/, "+$1");
+
+  // Quick digit sanity before libphonenumber: phones have 6-15 digits (ITU-T).
+  const digits = decoded.replace(/\D/g, "");
+  if (digits.length < 6 || digits.length > 15) {
+    return { valid: false, reason: `length:${digits.length}d` };
+  }
+
+  // Pure-digits-no-separator-and-not-international: a raw integer like
+  // "134217728" (which is literally 2^27) parses as a valid French landline
+  // because libphonenumber inserts the implicit trunk prefix. In practice
+  // this pattern is almost always a JavaScript constant scraped from a
+  // <script> body, not a phone. Real human-written phones either start with
+  // "+" / "00", or include at least one separator character. We require one
+  // of those signals for any 9-or-fewer-digit input.
+  const hasInternationalPrefix = /^(\+|00)/.test(decoded);
+  const hasSeparator = /[\s.\-/()]/.test(decoded.replace(/^\+?/, ""));
+  if (!hasInternationalPrefix && !hasSeparator && digits.length < 10) {
+    return { valid: false, reason: "ambiguous_raw_integer" };
+  }
+
+  // Pattern-reject obvious junk before libphonenumber wastes cycles.
+  for (const r of PHONE_PATTERN_REJECT) {
+    if (r.re.test(digits)) return { valid: false, reason: r.reason };
+  }
+
+  let parsed: PhoneNumber | undefined;
+  try {
+    parsed = parsePhoneNumberFromString(decoded, defaultCountry);
+  } catch {
+    return { valid: false, reason: "parse_error" };
+  }
+  if (!parsed) return { valid: false, reason: "no_parse" };
+  if (!parsed.isValid()) {
+    return { valid: false, reason: `invalid_for_${parsed.country ?? "??"}` };
+  }
+
+  const e164 = parsed.number; // "+33612345678"
+  const country = parsed.country;
+
+  // Reject useless French categories — premium 08xx etc.
+  const fr = isUselessFrenchNumber(e164);
+  if (fr.useless) return { valid: false, reason: fr.reason };
+
+  // Reject mass-spam / fake patterns: repeats of a single subscriber digit
+  // after the country code (e.g. +12111111111).
+  const subscriber = e164.replace(/^\+\d{1,3}/, "");
+  if (/^(\d)\1{6,}$/.test(subscriber)) return { valid: false, reason: "repeating_subscriber" };
+
+  return {
+    valid: true,
+    e164,
+    international: parsed.formatInternational(),
+    cleaned: parsed.formatNational(),
+    country,
+  };
+}
+
+/**
+ * Walk a free-text blob and return every well-formed phone number it contains.
+ * Wraps libphonenumber's findPhoneNumbersInText. Hands back the same shape as
+ * `validatePhone` so callers can store / display consistently.
+ */
+export function findPhonesInText(
+  text: string,
+  defaultCountry: CountryCode = "FR"
+): PhoneValidationResult[] {
+  if (!text || typeof text !== "string") return [];
+  const decoded = decodeAll(text);
+  const out: PhoneValidationResult[] = [];
+  const seen = new Set<string>();
+  try {
+    for (const match of findPhoneNumbersInText(decoded, defaultCountry)) {
+      const num = match.number;
+      if (!num.isValid()) continue;
+      const e164 = num.number;
+      if (seen.has(e164)) continue;
+      seen.add(e164);
+      // Pattern-reject junk
+      const subscriber = e164.replace(/^\+\d{1,3}/, "");
+      if (/^(\d)\1{6,}$/.test(subscriber)) continue;
+      const fr = isUselessFrenchNumber(e164);
+      if (fr.useless) continue;
+      out.push({
+        valid: true,
+        e164,
+        international: num.formatInternational(),
+        cleaned: num.formatNational(),
+        country: num.country,
+      });
+    }
+  } catch {
+    // libphonenumber should never throw, but be safe.
+  }
+  return out;
+}
+
+// ─── French phone validation (back-compat wrapper) ────────────────────────────
+// Keeps the legacy `{valid, cleaned, reason}` shape that older callers depend
+// on. Under the hood it now uses libphonenumber, with `FR` as the default
+// region so existing behaviour (accept "06 12 34 56 78" without an explicit
+// country) is preserved. The `cleaned` field is the French national form
+// "06 12 34 56 78" exactly like before — we re-format from E.164 to match
+// the spaced 2-digit grouping the rest of the app expects.
 
 export function validateFrenchPhone(raw: string): ValidationResult {
-  if (!raw || typeof raw !== "string") return { valid: false, reason: "empty" };
-
-  // Raw must not be absurdly long — phones max ~25 chars even fully formatted
-  if (raw.length > 40) return { valid: false, reason: "raw_too_long" };
-
-  // Decode entities + URL encoding FIRST — many bad phones are encoded valid ones
-  let decoded = decodeAll(raw);
-
-  // VERY common French write-style: "+33 (0)5 59 74 10 32" — the (0) is a hint,
-  // not a digit. Strip "(0)" after any international prefix BEFORE we collapse
-  // separators, otherwise it becomes a spurious leading zero and pushes the
-  // total to 11 digits which then fails the strict check.
-  decoded = decoded.replace(/(\+|00)33[\s.\-]*\(0\)/i, "+33");
-  decoded = decoded.replace(/^\(0\)/, ""); // local-format variant: "(0)5 59 ..."
-
-  // Strip everything except digits and leading +
-  let digits = decoded.replace(/[^\d+]/g, "");
-
-  // Convert international format to national
-  if (digits.startsWith("+33")) digits = "0" + digits.slice(3);
-  else if (digits.startsWith("0033")) digits = "0" + digits.slice(4);
-  else if (digits.startsWith("33") && digits.length === 11) digits = "0" + digits.slice(2);
-
-  // Reject any leftover '+' or non-digits
-  if (!/^\d+$/.test(digits)) return { valid: false, reason: "non_digits" };
-
-  // Final form must be exactly 10 digits starting with 0[1-9]
-  if (!/^0[1-9]\d{8}$/.test(digits))
-    return { valid: false, reason: `format:${digits.length}d` };
-
-  // Reject special-rate numbers (08xx) — almost always premium/scam for B2B context.
-  // 09 (VoIP/non-geographic) is kept; legitimate professionals use it.
-  if (digits.startsWith("08")) return { valid: false, reason: "special_rate_08" };
-
-  // Reject repeating-digit patterns (0111111111, 0222222222…)
-  if (/^0(\d)\1{8}$/.test(digits)) return { valid: false, reason: "repeating" };
-
-  // Reject 3+ consecutive identical digits anywhere (e.g. 0123444444) — usually
-  // a parsing artefact, not a real number
-  if (/(\d)\1{5,}/.test(digits)) return { valid: false, reason: "long_run" };
-
-  // Reject sequential patterns
-  if (digits === "0123456789" || digits === "0987654321")
-    return { valid: false, reason: "sequential" };
-
-  // Reject obvious non-phones: anything that's a date YYYYMMDD prefix
-  if (/^0?(19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/.test(digits))
-    return { valid: false, reason: "date_pattern" };
-
-  // Format as 06 12 34 56 78
-  const formatted = digits.replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, "$1 $2 $3 $4 $5");
-  return { valid: true, cleaned: formatted };
+  const r = validatePhone(raw, "FR");
+  if (!r.valid) return { valid: false, reason: r.reason };
+  // libphonenumber returns French national format as "06 12 34 56 78" already
+  // (matches our previous output). Only re-space if it differs.
+  if (r.country && r.country !== "FR") {
+    // The caller asked for FR but got a foreign number — for back-compat,
+    // refuse it so the old strict French gate behaves identically.
+    return { valid: false, reason: `not_fr:${r.country}` };
+  }
+  // Defensive re-format in case libphonenumber's national form ever drifts.
+  if (r.e164 && r.e164.startsWith("+33")) {
+    const local = "0" + r.e164.slice(3);
+    if (/^0[1-9]\d{8}$/.test(local)) {
+      const spaced = local.replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, "$1 $2 $3 $4 $5");
+      return { valid: true, cleaned: spaced };
+    }
+  }
+  return { valid: true, cleaned: r.cleaned };
 }
 
 // ─── Convenience helpers ──────────────────────────────────────────────────────
@@ -265,7 +414,7 @@ export function cleanEmail(raw: string): string | null {
   return r.valid ? r.cleaned! : null;
 }
 
-export function cleanPhone(raw: string): string | null {
-  const r = validateFrenchPhone(raw);
-  return r.valid ? r.cleaned! : null;
+export function cleanPhone(raw: string, defaultCountry: CountryCode = "FR"): string | null {
+  const r = validatePhone(raw, defaultCountry);
+  return r.valid ? r.e164 ?? r.cleaned ?? null : null;
 }

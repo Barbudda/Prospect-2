@@ -8,7 +8,13 @@ import type {
 } from "@/lib/types";
 import { validatePublicUrl } from "@/lib/utils/ssrf";
 import { normalizePhone, toE164 } from "@/lib/utils/url";
-import { validateEmail, validateFrenchPhone, decodeAll } from "@/lib/utils/contact-validator";
+import {
+  validateEmail,
+  validatePhone,
+  findPhonesInText,
+  decodeAll,
+} from "@/lib/utils/contact-validator";
+import type { CountryCode } from "libphonenumber-js";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -48,14 +54,31 @@ const EMAIL_REGEX =
 const OBFUSCATED_EMAIL_REGEX =
   /([a-zA-Z0-9._%+\-]+)\s*[\[\(]?\s*(?:at|@|arobase)\s*[\]\)]?\s*([a-zA-Z0-9.\-]+)\s*[\[\(]?\s*(?:dot|\.)\s*[\]\)]?\s*([a-zA-Z]{2,})/gi;
 
-// Phone regex.
-//   - Optional international prefix (+33 / 0033) followed optionally by "(0)"
-//     — a very common French write-style: "+33 (0)5 59 74 10 32".
-//   - French local pattern 0[1-9] + 4×(separator+2-digit).
-//   - Generic separator-bearing fallback for non-French formats.
-//   - Negative lookbehind/lookahead prevent matching inside larger digit blobs.
-const PHONE_REGEX =
-  /(?<!\d)(?:\+?(?:33|44|1|49|34|39|351|41|32|31|352)[\s.\-]?(?:\(0\)[\s.\-]?)?)?(?:0[1-9](?:[\s.\-]?\d{2}){4}|\(?\d{2,4}\)?[\s.\-]\d{2,4}[\s.\-]\d{2,4}(?:[\s.\-]\d{2,4})?)(?!\d)/g;
+// TLD → default country mapping used when a page's phones are in pure local
+// form ("020 7946 0958" with no leading +44). Covers the markets we care
+// about plus a generic fallback to FR (our primary market).
+const TLD_TO_COUNTRY: Record<string, CountryCode> = {
+  fr: "FR", uk: "GB", de: "DE", es: "ES", it: "IT", be: "BE", ch: "CH",
+  nl: "NL", lu: "LU", mc: "MC", pt: "PT", ie: "IE", at: "AT", dk: "DK",
+  se: "SE", no: "NO", fi: "FI", pl: "PL", cz: "CZ", gr: "GR", ro: "RO",
+  us: "US", ca: "CA", au: "AU", nz: "NZ", jp: "JP", br: "BR", mx: "MX",
+};
+
+function defaultCountryForUrl(url: string): CountryCode {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    // Handle .co.uk → uk
+    const parts = host.split(".");
+    const tld = parts[parts.length - 1];
+    if (TLD_TO_COUNTRY[tld]) return TLD_TO_COUNTRY[tld];
+    const second = parts[parts.length - 2];
+    if (second === "co" && tld === "uk") return "GB";
+    if (tld === "uk") return "GB";
+  } catch {
+    // fall through
+  }
+  return "FR";
+}
 
 // Extensions that are never valid email TLDs (JS methods, file extensions, …)
 const NON_EMAIL_EXTENSIONS = new Set([
@@ -213,37 +236,59 @@ function tryAddPhone(
   raw: string,
   confidence: Confidence,
   sourceUrl: string,
+  defaultCountry: CountryCode,
   found: Map<string, ExtractedPhone>
 ): void {
-  const result = validateFrenchPhone(raw);
-  if (!result.valid || !result.cleaned) return;
-  const cleaned = result.cleaned;
-  const normalized = toE164(cleaned);
-  const key = normalized ?? cleaned;
+  const result = validatePhone(raw, defaultCountry);
+  if (!result.valid || !result.e164) return;
+  const key = result.e164;
   const existing = found.get(key);
   const order: Confidence[] = ["high", "medium", "low"];
   if (!existing || order.indexOf(confidence) < order.indexOf(existing.confidence)) {
     found.set(key, {
-      raw: cleaned,
-      normalized: normalized ?? undefined,
+      raw: result.cleaned ?? result.international ?? result.e164,
+      normalized: result.e164,
       confidence,
       source: sourceUrl,
     });
   }
 }
 
+function addPhonesFromText(
+  text: string,
+  confidence: Confidence,
+  sourceUrl: string,
+  defaultCountry: CountryCode,
+  found: Map<string, ExtractedPhone>
+): void {
+  const order: Confidence[] = ["high", "medium", "low"];
+  for (const p of findPhonesInText(text, defaultCountry)) {
+    if (!p.e164) continue;
+    const existing = found.get(p.e164);
+    if (!existing || order.indexOf(confidence) < order.indexOf(existing.confidence)) {
+      found.set(p.e164, {
+        raw: p.cleaned ?? p.international ?? p.e164,
+        normalized: p.e164,
+        confidence,
+        source: sourceUrl,
+      });
+    }
+  }
+}
+
 function extractPhonesFromHtml(html: string, sourceUrl: string): ExtractedPhone[] {
   const found = new Map<string, ExtractedPhone>();
+  const defaultCountry = defaultCountryForUrl(sourceUrl);
 
-  // 1. tel: links — highest confidence
+  // 1. tel: links — highest confidence (the operator put it in an href)
   const telMatches = html.matchAll(/href=["']tel:([^"'>]+)/gi);
-  for (const m of telMatches) tryAddPhone(m[1], "high", sourceUrl, found);
+  for (const m of telMatches) tryAddPhone(m[1], "high", sourceUrl, defaultCountry, found);
 
   // 2. WhatsApp click-to-chat — phone is in the URL itself
   const waMatches = html.matchAll(
     /(?:wa\.me\/|api\.whatsapp\.com\/send\?phone=|whatsapp\.com\/send\?phone=)(\+?\d{8,15})/gi
   );
-  for (const m of waMatches) tryAddPhone(m[1], "high", sourceUrl, found);
+  for (const m of waMatches) tryAddPhone(m[1], "high", sourceUrl, defaultCountry, found);
 
   // 3. Schema.org JSON-LD — telephone field
   const jsonLdMatches = html.matchAll(
@@ -254,12 +299,12 @@ function extractPhonesFromHtml(html: string, sourceUrl: string): ExtractedPhone[
       const parsed = JSON.parse(m[1]);
       const objs = Array.isArray(parsed) ? parsed : [parsed];
       for (const o of objs) {
-        if (typeof o?.telephone === "string") tryAddPhone(o.telephone, "high", sourceUrl, found);
+        if (typeof o?.telephone === "string") tryAddPhone(o.telephone, "high", sourceUrl, defaultCountry, found);
         if (typeof o?.contactPoint?.telephone === "string")
-          tryAddPhone(o.contactPoint.telephone, "high", sourceUrl, found);
+          tryAddPhone(o.contactPoint.telephone, "high", sourceUrl, defaultCountry, found);
         if (Array.isArray(o?.contactPoint)) {
           for (const cp of o.contactPoint)
-            if (typeof cp?.telephone === "string") tryAddPhone(cp.telephone, "high", sourceUrl, found);
+            if (typeof cp?.telephone === "string") tryAddPhone(cp.telephone, "high", sourceUrl, defaultCountry, found);
         }
       }
     } catch {
@@ -271,11 +316,10 @@ function extractPhonesFromHtml(html: string, sourceUrl: string): ExtractedPhone[
   const microMatches = html.matchAll(
     /itemprop=["']telephone["'][^>]*?(?:content=["']([^"']+)|>([^<]+))/gi
   );
-  for (const m of microMatches) tryAddPhone(m[1] ?? m[2] ?? "", "high", sourceUrl, found);
+  for (const m of microMatches) tryAddPhone(m[1] ?? m[2] ?? "", "high", sourceUrl, defaultCountry, found);
 
-  // 5. <footer> targeted pass — French mentions-légales footers are almost
-  // always where the real phone lives. We boost confidence for matches found
-  // inside a <footer>…</footer> region.
+  // 5. <footer> targeted pass — legal footers are almost always where the
+  //    real phone lives. We boost confidence for matches found inside footer.
   const footerMatch = html.match(/<footer[\s\S]*?<\/footer>/i);
   if (footerMatch) {
     const decodedFooter = decodeAll(
@@ -283,21 +327,21 @@ function extractPhonesFromHtml(html: string, sourceUrl: string): ExtractedPhone[
         .replace(/<[^>]+>/g, " ")
         .replace(/\b\d{1,2}[-\/\.]\d{1,2}[-\/\.](19|20)\d{2}\b/g, " ")
     );
-    for (const m of decodedFooter.matchAll(PHONE_REGEX)) {
-      tryAddPhone(m[0], "high", sourceUrl, found);
-    }
+    addPhonesFromText(decodedFooter, "high", sourceUrl, defaultCountry, found);
   }
 
-  // 6. Regex over decoded visible text — decode entities + URL encoding FIRST
-  // so %2B33... and &#43;33... become +33...
-  const decoded = decodeAll(
+  // 6. libphonenumber-powered free-text scan over the decoded body — strips
+  //    HTML, kills date patterns, then hands the rest to findPhonesInText
+  //    which knows every country's rules.
+  const decodedBody = decodeAll(
     html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
       .replace(/<[^>]+>/g, " ")
       .replace(/\b\d{1,2}[-\/\.]\d{1,2}[-\/\.](19|20)\d{2}\b/g, " ")
       .replace(/\b(19|20)\d{2}[-\/\.]\d{1,2}[-\/\.]\d{1,2}\b/g, " ")
   );
-  const phoneMatches = decoded.matchAll(PHONE_REGEX);
-  for (const m of phoneMatches) tryAddPhone(m[0], "medium", sourceUrl, found);
+  addPhonesFromText(decodedBody, "medium", sourceUrl, defaultCountry, found);
 
   return Array.from(found.values()).slice(0, 5);
 }
