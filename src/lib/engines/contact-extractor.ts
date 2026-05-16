@@ -15,14 +15,17 @@ import { validateEmail, validateFrenchPhone, decodeAll } from "@/lib/utils/conta
 // LCEN Article 19: every French business website MUST publish identity +
 // contact info on a public page. We try a wide spread of common path names
 // so we don't miss the mentions légales just because it's at /legal-mentions
-// instead of /mentions-legales.
+// instead of /mentions-legales. PRIORITY ORDER: the first few entries are
+// the by-far most common locations for a real phone — these are tried
+// before any other discovered URL so the maxPages budget is never wasted
+// on a peripheral page when /contact wasn't even attempted.
 const CONTACT_PATHS = [
-  // Contact
-  "/contact", "/contactez-nous", "/contactez", "/nous-contacter", "/contact-us",
-  // About
-  "/about", "/about-us", "/a-propos", "/qui-sommes-nous", "/notre-equipe", "/team",
-  // Legal (mandatory in FR)
-  "/mentions-legales", "/mentions", "/legal", "/legal-mentions", "/legal-notice",
+  // Top-priority — almost always present and almost always carries the phone
+  "/contact", "/mentions-legales", "/contactez-nous", "/nous-contacter",
+  // Common secondary
+  "/a-propos", "/about", "/qui-sommes-nous", "/contact-us", "/contactez", "/about-us",
+  // Legal (mandatory in FR — alternate locations)
+  "/mentions", "/legal", "/legal-mentions", "/legal-notice",
   "/imprint", "/impressum", "/cgv", "/cgu", "/conditions", "/conditions-generales",
   "/conditions-generales-de-vente", "/conditions-generales-utilisation",
   "/privacy", "/politique-de-confidentialite", "/cookies",
@@ -31,9 +34,13 @@ const CONTACT_PATHS = [
   "/gestion", "/gestion-locative", "/conciergerie", "/concierge",
   "/services", "/nos-services", "/our-services",
   "/nos-logements", "/locations", "/properties", "/villas", "/nos-locations",
-  "/portfolio", "/biens",
+  "/portfolio", "/biens", "/notre-equipe", "/team",
   "/faq", "/help", "/aide",
 ];
+
+// Always-tried subset: even if the homepage has 10 hint-matching links, we
+// still attempt at least these four before falling through.
+const TOP_PRIORITY_PATHS = ["/contact", "/mentions-legales", "/contactez-nous", "/nous-contacter"] as const;
 
 const EMAIL_REGEX =
   /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
@@ -533,7 +540,7 @@ export async function extractContactsFromWebsite(
   baseUrl: string,
   options: CrawlOptions = {}
 ): Promise<ExtractedContacts | null> {
-  const maxPages = options.maxPages ?? 8;
+  const maxPages = options.maxPages ?? 12;
   const timeoutMs = options.timeoutMs ?? 10_000;
 
   const validation = validatePublicUrl(baseUrl);
@@ -582,10 +589,18 @@ export async function extractContactsFromWebsite(
     // home-page parse failure is non-fatal; we still try the fixed paths.
   }
 
+  // Priority order:
+  //   1. baseUrl (homepage)
+  //   2. TOP_PRIORITY_PATHS — /contact, /mentions-legales etc. ALWAYS tried
+  //   3. up to 4 links followed from the homepage's <a> tags
+  //   4. remaining CONTACT_PATHS (the longer tail)
+  // The Set keeps dedup. Slice to maxPages last so the top-priority paths
+  // never get dropped just because the home page had many hint links.
   const urlsToTry = Array.from(
     new Set([
       baseUrl,
-      ...followedFromHome.slice(0, 6),
+      ...TOP_PRIORITY_PATHS.map((p) => `${origin}${p}`),
+      ...followedFromHome.slice(0, 4),
       ...CONTACT_PATHS.map((p) => `${origin}${p}`),
     ])
   ).slice(0, maxPages);

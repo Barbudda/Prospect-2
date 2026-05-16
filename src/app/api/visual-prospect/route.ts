@@ -4,6 +4,7 @@ import { scrapeListingImages } from "@/lib/engines/listing-scraper";
 import { runGeoReconstruction } from "@/lib/engines/geo-reconstruction";
 import { scoreLead, getScoreLabel } from "@/lib/engines/scorer";
 import { generateOutreachAngle } from "@/lib/engines/outreach";
+import { gradeLead } from "@/lib/engines/lead-quality-gate";
 import { validatePublicUrl } from "@/lib/utils/ssrf";
 import type { GeoReconstructionResult, NormalizedLead } from "@/lib/types";
 
@@ -158,6 +159,20 @@ export async function POST(req: NextRequest) {
       country,
       scraped.title
     );
+
+    // Quality gate — even single-listing reconstructions can return junk
+    // (Airbnb help/community pages slipped past the URL validator).
+    const verdict = gradeLead(lead);
+    if (!verdict.keep) {
+      return NextResponse.json({
+        lead_id: null,
+        lead,
+        reconstruction,
+        images: scraped.images,
+        rejected_by_quality_gate: true,
+        reason: verdict.reasons.join("; "),
+      });
+    }
 
     const serviceSupabase = createServiceClient();
     const { data: inserted, error: insertError } = await serviceSupabase

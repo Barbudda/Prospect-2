@@ -1,6 +1,6 @@
 /**
- * Test script: crawl a real website and show extracted contacts.
- * Usage: npx tsx scripts/test-extractor.ts [url]
+ * Smoke script: crawl a real website and show extracted contacts.
+ * Usage: npx tsx scripts/smoke-extractor.ts [url]
  * Default URL: https://www.biarritz-conciergerie.com (a real STR concierge)
  */
 

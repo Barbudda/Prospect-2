@@ -318,8 +318,6 @@ export default function VisualPage() {
     score: number;
     score_label: string;
     parcel_ref?: string;
-    saved: boolean;
-    error?: string;
   }>>([]);
 
   async function handleMapProspect() {
@@ -328,16 +326,27 @@ export default function VisualPage() {
     setMapError("");
     setMapLeads([]);
     try {
-      const res = await fetch("/api/map-prospect", {
+      // Consolidated to /api/maps-prospect (the engine-backed endpoint).
+      // The singular /api/map-prospect was a duplicate and has been removed.
+      const res = await fetch("/api/maps-prospect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ city: mapCity.trim(), country: mapCountry, max_results: mapMax }),
+        body: JSON.stringify({ city: mapCity.trim(), country: mapCountry, max_leads: mapMax, enrich_cadastre: true }),
         signal: AbortSignal.timeout(120_000),
       });
       const data = await res.json() as {
-        discovered?: number;
         saved?: number;
-        leads?: typeof mapLeads;
+        total_found?: number;
+        leads?: Array<{
+          id?: string;
+          primary_name: string;
+          city: string;
+          address?: string;
+          phone?: string;
+          website_url?: string;
+          score: number;
+          score_label: string;
+        }>;
         error?: string;
       };
       if (!res.ok || data.error) {
@@ -345,9 +354,21 @@ export default function VisualPage() {
         setMapStatus("error");
         return;
       }
-      setMapLeads(data.leads ?? []);
+      // Adapt the maps-prospect shape to the existing local row type
+      setMapLeads(
+        (data.leads ?? []).map((l) => ({
+          id: l.id,
+          name: l.primary_name,
+          city: l.city,
+          address: l.address,
+          phone: l.phone,
+          website: l.website_url,
+          score: l.score,
+          score_label: l.score_label,
+        }))
+      );
       setMapStatus("done");
-      toast.success(`${data.saved} lead${data.saved === 1 ? "" : "s"} saved from Google Maps`);
+      toast.success(`${data.saved ?? 0} lead${(data.saved ?? 0) === 1 ? "" : "s"} saved from Google Maps`);
     } catch (err) {
       setMapError(err instanceof Error ? err.message : "Failed");
       setMapStatus("error");

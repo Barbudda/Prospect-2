@@ -5,7 +5,7 @@
 // compliance notes, and multi-channel outreach drafts.
 //
 // Composition only — uses existing engines (weird signals, contact paths,
-// scorer-v2, compliance) plus Mammouth for the natural-language synthesis.
+// dossier-scorer, compliance) plus Mammouth for the natural-language synthesis.
 // No new external data fetched.
 
 import * as Mammouth from "@/lib/providers/mammouth";
@@ -19,7 +19,7 @@ import {
   type LeadForContactPaths,
   type ContactPath,
 } from "@/lib/engines/contact-path-finder";
-import { scoreLeadV2, type ScoreV2Result } from "@/lib/engines/scorer-v2";
+import { scoreLeadForDossier, type DossierScoreResult } from "@/lib/engines/dossier-scorer";
 
 export interface DossierInput {
   // Core lead fields
@@ -78,7 +78,7 @@ export interface LeadDossier {
   summary: string;
   why_this_matters: string;
   estimated_operator_type: string;
-  scores: ScoreV2Result;
+  scores: DossierScoreResult;
   weird_signals: WeirdSignal[];
   contact_paths: ContactPath[];
   evidence_trail: Array<{ source: string; observation: string; confidence: string }>;
@@ -230,7 +230,7 @@ function fallbackOffer(signals: WeirdSignal[]): string {
 async function synthesise(
   d: DossierInput,
   signals: WeirdSignal[],
-  scores: ScoreV2Result,
+  scores: DossierScoreResult,
   paths: ContactPath[]
 ): Promise<{
   summary: string;
@@ -351,7 +351,7 @@ export async function generateLeadDossier(
 ): Promise<LeadDossier> {
   const signals = scanLeadForWeirdSignals(leadForSignals(d));
   const paths = findContactPaths(leadForPaths(d));
-  const scores = scoreLeadV2({
+  const scores = scoreLeadForDossier({
     base_score: d.score,
     reconstruction_confidence: d.reconstruction_confidence,
     exclusivity_score: d.exclusivity_score,

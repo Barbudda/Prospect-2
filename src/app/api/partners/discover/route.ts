@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { discoverPartners } from "@/lib/engines/partner-discovery";
+import { gradeLead } from "@/lib/engines/lead-quality-gate";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -52,17 +53,24 @@ export async function POST(req: NextRequest) {
         leads: [],
       });
 
+    // Quality gate first — partner discovery occasionally surfaces aggregator
+    // and review pages that aren't real operators.
+    const gated = result.leads.filter((l) => gradeLead(l).keep);
+    const droppedByGate = result.leads.length - gated.length;
+
     // Save (dedupe by source_url)
     const service = createServiceClient();
-    const sourceUrls = result.leads.map((l) => l.source_url).filter(Boolean);
-    const { data: existing } = await service
-      .from("leads")
-      .select("source_url")
-      .eq("user_id", user.id)
-      .in("source_url", sourceUrls);
+    const sourceUrls = gated.map((l) => l.source_url).filter(Boolean);
+    const { data: existing } = sourceUrls.length
+      ? await service
+          .from("leads")
+          .select("source_url")
+          .eq("user_id", user.id)
+          .in("source_url", sourceUrls)
+      : { data: [] as Array<{ source_url: string }> };
     const existingUrls = new Set((existing ?? []).map((e) => e.source_url));
 
-    const toInsert = result.leads
+    const toInsert = gated
       .filter((l) => !existingUrls.has(l.source_url))
       .map((l) => ({
         user_id: user.id,
@@ -96,10 +104,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       saved: inserted.length,
-      duplicates_skipped: result.leads.length - toInsert.length,
+      duplicates_skipped: gated.length - toInsert.length,
+      rejected_by_quality_gate: droppedByGate,
       by_role: result.by_role,
       queries_executed: result.queries_executed,
-      leads: result.leads.map((l, i) => ({
+      leads: toInsert.map((l, i) => ({
         id: inserted[i]?.id,
         name: l.primary_name,
         role: l.source_type,

@@ -1,6 +1,6 @@
 /**
- * Test script: verify Brave Search is configured and returns real results.
- * Usage: npx tsx scripts/test-brave.ts
+ * Smoke script: verify Brave Search is configured and returns real results.
+ * Usage: npx tsx scripts/smoke-brave.ts
  * Requires: BRAVE_SEARCH_API_KEY in .env.local
  */
 

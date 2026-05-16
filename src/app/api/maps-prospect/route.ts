@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { runMapsProspect } from "@/lib/engines/maps-prospector";
+import { gradeLead } from "@/lib/engines/lead-quality-gate";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -56,17 +57,24 @@ export async function POST(req: NextRequest) {
         info: "No relevant operators found on Google Maps for this city.",
       });
 
+    // Quality gate — reject press articles, help pages, generic guides etc.
+    // before we touch the DB.
+    const gated = result.leads.filter((l) => gradeLead(l).keep);
+    const droppedByGate = result.leads.length - gated.length;
+
     // Save leads (skip if same google_maps_url already saved for this user)
     const service = createServiceClient();
-    const sourceUrls = result.leads.map((l) => l.source_url).filter(Boolean);
-    const { data: existing } = await service
-      .from("leads")
-      .select("source_url")
-      .eq("user_id", user.id)
-      .in("source_url", sourceUrls);
+    const sourceUrls = gated.map((l) => l.source_url).filter(Boolean);
+    const { data: existing } = sourceUrls.length
+      ? await service
+          .from("leads")
+          .select("source_url")
+          .eq("user_id", user.id)
+          .in("source_url", sourceUrls)
+      : { data: [] as Array<{ source_url: string }> };
 
     const existingUrls = new Set((existing ?? []).map((e) => e.source_url));
-    const toInsert = result.leads
+    const toInsert = gated
       .filter((l) => !existingUrls.has(l.source_url))
       .map((l) => ({
         user_id: user.id,
@@ -107,12 +115,13 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       saved: inserted.length,
-      duplicates_skipped: result.leads.length - toInsert.length,
+      duplicates_skipped: gated.length - toInsert.length,
+      rejected_by_quality_gate: droppedByGate,
       total_found: result.total_found,
       queries_used: result.queries_used,
       skipped_no_contact: result.skipped_no_contact,
       skipped_invalid_phone: result.skipped_invalid_phone,
-      leads: result.leads.map((l, i) => ({
+      leads: toInsert.map((l, i) => ({
         id: inserted[i]?.id,
         primary_name: l.primary_name,
         lead_type: l.lead_type,

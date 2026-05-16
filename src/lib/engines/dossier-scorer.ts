@@ -1,20 +1,20 @@
-// OPPORTUNITY SCORING ENGINE V2 (#5 from the brief)
+// DOSSIER SCORER — multi-dimensional scoring used by the lead dossier.
 //
-// Produces the three scores the brief calls for:
-//   - Lead Quality Score (0-100)
-//   - Confidence Score (0-100)        — how sure are we this is real & relevant
-//   - Compliance Safety Score (0-100) — how clean is the contact path
+// Produces three scores plus narrative output:
+//   - Lead Quality Score (0-100)       — how strong is the opportunity
+//   - Confidence Score (0-100)         — how sure are we this is real & matched
+//   - Compliance Safety Score (0-100)  — how clean is the contact path
 //
 // Plus: suggested service fit, best outreach channel, reasoning summary.
 //
-// This is ADDITIVE alongside the existing scorer.ts — that one stays the
-// authoritative score on the leads table. This v2 score is used by the
-// dossier and dashboard for richer prioritisation.
+// Complementary to scorer.ts (which produces the single authoritative score
+// stored on leads.score). This module is consumed exclusively by lead-dossier
+// and the dashboard for richer prioritisation displays.
 
 import type { WeirdSignal } from "@/lib/engines/weird-signal-scanner";
 import type { ContactPath } from "@/lib/engines/contact-path-finder";
 
-export interface ScoreV2Input {
+export interface DossierScoreInput {
   base_score: number;            // existing lead.score (0-100)
   reconstruction_confidence?: number | null;
   exclusivity_score?: number | null;
@@ -31,7 +31,7 @@ export interface ScoreV2Input {
   source_type?: string | null;
 }
 
-export interface ScoreV2Result {
+export interface DossierScoreResult {
   lead_quality_score: number;
   confidence_score: number;
   compliance_safety_score: number;
@@ -40,7 +40,7 @@ export interface ScoreV2Result {
   reasoning_summary: string;
 }
 
-export function scoreLeadV2(input: ScoreV2Input): ScoreV2Result {
+export function scoreLeadForDossier(input: DossierScoreInput): DossierScoreResult {
   // ── Lead Quality (0-100) ────────────────────────────────────────────────
   // Built from base score + weird signal severity + cluster size + audit gap
   let quality = input.base_score;

@@ -1,6 +1,6 @@
 /**
- * Test script: verify SerpAPI is configured and returns real results.
- * Usage: npx tsx scripts/test-serpapi.ts
+ * Smoke script: verify SerpAPI is configured and returns real results.
+ * Usage: npx tsx scripts/smoke-serpapi.ts
  * Requires: SERPAPI_API_KEY in .env.local
  */
 
