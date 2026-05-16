@@ -50,8 +50,23 @@ function decodeUrlEncoding(s: string): string {
   return prev;
 }
 
+// Normalise the menagerie of Unicode whitespace characters real French and
+// other European sites use between phone-number digit groups. Without this,
+// libphonenumber sees something like "06 12 34 56 78"
+// as a single digit blob and refuses to parse it.
+function normalizeUnicodeWhitespace(s: string): string {
+  return s
+    .replace(/ /g, " ")   // NO-BREAK SPACE
+    .replace(/ /g, " ")   // NARROW NO-BREAK SPACE (FR-canonical)
+    .replace(/ /g, " ")   // FIGURE SPACE
+    .replace(/ /g, " ")   // THIN SPACE
+    .replace(/​/g, "")    // ZERO-WIDTH SPACE — drop entirely
+    .replace(/‌/g, "")    // ZERO-WIDTH NON-JOINER
+    .replace(/‍/g, "");   // ZERO-WIDTH JOINER
+}
+
 export function decodeAll(s: string): string {
-  return decodeHtmlEntities(decodeUrlEncoding(s));
+  return normalizeUnicodeWhitespace(decodeHtmlEntities(decodeUrlEncoding(s)));
 }
 
 // ─── Email validation ─────────────────────────────────────────────────────────
@@ -144,10 +159,15 @@ const CDN_DOMAIN_SUFFIXES = [
   "twimg.com",
 ];
 
-// Local parts that are obvious placeholders, not real emails
+// Local parts that are obvious placeholders, not real emails. Kept tight on
+// purpose: "user", "name", "email", "info" are legitimately used by real
+// operators ("user@brand.com.au", "name@firm.io"), so they DO NOT belong
+// in the placeholder reject-list.
 const PLACEHOLDER_LOCALS = new Set([
-  "name", "email", "your-email", "youremail", "user", "test", "demo",
-  "support@superhote", // matched as literal once decoded — false positive guard
+  "your-email", "youremail", "your_email",
+  "yourname", "your-name",
+  "votre-email", "votreemail",
+  "example", "examples",
 ]);
 
 export interface ValidationResult {
@@ -219,14 +239,12 @@ export function validateEmail(raw: string): ValidationResult {
   if (PLACEHOLDER_LOCALS.has(localPart))
     return { valid: false, reason: `placeholder:${localPart}` };
 
-  // Heuristic: reject locals that look like CSS/JS class fragments
-  // (one or two-letter local + dotted weirdness, e.g. "st@ic.xx.fbcdn.net" already
-  //  caught by CDN; "m@h.random" caught by unknown_tld; "fonts.gst@ic.com" → local
-  //  "fonts.gst" is plausible but domain "ic.com" alone is fishy. Reject 2-char SLDs.)
-  if (sld.length === 2 && tld.length <= 3) {
-    // "ic.com", "x.fr" — almost always parser artefacts. Real 2-letter SLDs are
-    // either national subdomains (co.uk etc., where the tld is 2) or vanity
-    // (q.com), but in our B2B context they're noise.
+  // Heuristic: reject locals that look like CSS/JS class fragments where
+  // the "SLD" is a 2-char artefact like "ic.com" or "x.fr". Only fires for
+  // exactly-two-label domains so legitimate compound TLDs (co.uk, co.jp,
+  // com.au, com.sg, ne.jp, …) survive — those have ≥3 labels and the
+  // 2-char label is the registry suffix, not the brand.
+  if (labels.length === 2 && sld.length === 2 && tld.length <= 3) {
     return { valid: false, reason: `short_sld:${sld}.${tld}` };
   }
 
@@ -347,8 +365,12 @@ export function validatePhone(
 
 /**
  * Walk a free-text blob and return every well-formed phone number it contains.
- * Wraps libphonenumber's findPhoneNumbersInText. Hands back the same shape as
- * `validatePhone` so callers can store / display consistently.
+ * Wraps libphonenumber's findPhoneNumbersInText, then re-runs each match
+ * through `validatePhone` against its raw substring so the same junk rules
+ * (ambiguous bare-integer rejection, SIREN-shape patterns, useless French
+ * categories) apply consistently. This catches bare 9-digit runs like
+ * "Registration code: 123456789" that libphonenumber would otherwise turn
+ * into +33123456789 (a fake Paris landline).
  */
 export function findPhonesInText(
   text: string,
@@ -364,6 +386,18 @@ export function findPhonesInText(
       if (!num.isValid()) continue;
       const e164 = num.number;
       if (seen.has(e164)) continue;
+
+      // Pull the raw substring that libphonenumber matched. If the raw is
+      // a bare digit run with no separators and no `+` prefix, treat it as
+      // an ambiguous registration / order number rather than a phone.
+      const rawSpan = typeof match.startsAt === "number" && typeof match.endsAt === "number"
+        ? decoded.slice(match.startsAt, match.endsAt)
+        : "";
+      const hasIntPrefix = /^[\s(]*(\+|00)/.test(rawSpan);
+      const hasSeparator = /[\s.\-()  ]/.test(rawSpan.replace(/^\+?\d{1,3}/, ""));
+      const digitsOnly = rawSpan.replace(/\D/g, "");
+      if (!hasIntPrefix && !hasSeparator && digitsOnly.length < 10) continue;
+
       seen.add(e164);
       // Pattern-reject junk
       const subscriber = e164.replace(/^\+\d{1,3}/, "");
