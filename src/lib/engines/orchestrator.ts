@@ -213,18 +213,33 @@ async function persistLeads(
   // Quality gate — reject press articles, help pages, Reddit threads,
   // Wikipedia, news domains, generic "Comment devenir Superhost" guides.
   const { gradeLead } = await import("./lead-quality-gate");
+  // Suppression list — drop leads whose email/phone the user previously
+  // marked as do-not-contact. Loading once outside the loop avoids one
+  // round-trip per lead.
+  const { loadSuppressionSet, isSuppressed } = await import("@/lib/utils/suppression");
+  const suppressed = await loadSuppressionSet(supabase, userId);
+
   const keepers: NormalizedLead[] = [];
   let rejected = 0;
+  let suppressedCount = 0;
   for (const lead of leads) {
     const verdict = gradeLead(lead);
-    if (verdict.keep) {
-      keepers.push(lead);
-    } else {
+    if (!verdict.keep) {
       rejected++;
+      continue;
     }
+    const sup = isSuppressed(suppressed, { email: lead.email, phone: lead.phone });
+    if (sup.suppressed) {
+      suppressedCount++;
+      continue;
+    }
+    keepers.push(lead);
   }
   if (rejected > 0) {
     console.log(`[orchestrator] quality gate rejected ${rejected} junk lead(s) out of ${leads.length}`);
+  }
+  if (suppressedCount > 0) {
+    console.log(`[orchestrator] suppression list dropped ${suppressedCount} do-not-contact match(es)`);
   }
 
   for (const lead of keepers) {
@@ -334,10 +349,15 @@ async function saveDraftLeads(
   runId: string
 ): Promise<void> {
   if (leads.length === 0) return;
-  // Apply the same quality gate to drafts so the progress counter never
-  // inflates with junk.
+  // Apply the same quality gate AND suppression list to drafts so the
+  // progress counter never inflates with junk or with leads we'll drop
+  // at the final persist anyway.
   const { gradeLead } = await import("./lead-quality-gate");
-  const keepers = leads.filter((l) => gradeLead(l).keep);
+  const { loadSuppressionSet, isSuppressed } = await import("@/lib/utils/suppression");
+  const suppressed = await loadSuppressionSet(supabase, userId);
+  const keepers = leads.filter(
+    (l) => gradeLead(l).keep && !isSuppressed(suppressed, { email: l.email, phone: l.phone }).suppressed
+  );
   if (keepers.length === 0) return;
   const rows = keepers.map((lead) => ({
     user_id: userId,

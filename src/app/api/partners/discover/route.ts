@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { discoverPartners } from "@/lib/engines/partner-discovery";
 import { gradeLead } from "@/lib/engines/lead-quality-gate";
+import { loadSuppressionSet, isSuppressed } from "@/lib/utils/suppression";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -58,9 +59,14 @@ export async function POST(req: NextRequest) {
     const gated = result.leads.filter((l) => gradeLead(l).keep);
     const droppedByGate = result.leads.length - gated.length;
 
-    // Save (dedupe by source_url)
+    // Save (dedupe by source_url) — and respect the user's suppression list.
     const service = createServiceClient();
-    const sourceUrls = gated.map((l) => l.source_url).filter(Boolean);
+    const suppressed = await loadSuppressionSet(service, user.id);
+    const nonSuppressed = gated.filter(
+      (l) => !isSuppressed(suppressed, { email: l.email, phone: l.phone }).suppressed
+    );
+    const droppedBySuppression = gated.length - nonSuppressed.length;
+    const sourceUrls = nonSuppressed.map((l) => l.source_url).filter(Boolean);
     const { data: existing } = sourceUrls.length
       ? await service
           .from("leads")
@@ -70,7 +76,7 @@ export async function POST(req: NextRequest) {
       : { data: [] as Array<{ source_url: string }> };
     const existingUrls = new Set((existing ?? []).map((e) => e.source_url));
 
-    const toInsert = gated
+    const toInsert = nonSuppressed
       .filter((l) => !existingUrls.has(l.source_url))
       .map((l) => ({
         user_id: user.id,
@@ -104,8 +110,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       saved: inserted.length,
-      duplicates_skipped: gated.length - toInsert.length,
+      duplicates_skipped: nonSuppressed.length - toInsert.length,
       rejected_by_quality_gate: droppedByGate,
+      suppressed_dnc: droppedBySuppression,
       by_role: result.by_role,
       queries_executed: result.queries_executed,
       leads: toInsert.map((l, i) => ({

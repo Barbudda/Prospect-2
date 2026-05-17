@@ -182,6 +182,7 @@ export default function SettingsPage() {
           <TabsTrigger value="enrichment">Enrichment</TabsTrigger>
           <TabsTrigger value="ai">AI</TabsTrigger>
           <TabsTrigger value="str">STR Data</TabsTrigger>
+          <TabsTrigger value="compliance">Compliance</TabsTrigger>
         </TabsList>
 
         <TabsContent value="search" className="mt-4">
@@ -265,7 +266,136 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="compliance" className="mt-4">
+          <SuppressionPanel />
+        </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Suppression list management — view / add / remove DNC entries.
+// Backed by /api/suppression. Soft-fails when migration 007 isn't applied
+// yet by surfacing the API's `info` field so the user knows what to do.
+// ──────────────────────────────────────────────────────────────────────────
+
+interface SuppressionEntry {
+  id: string;
+  kind: "email" | "phone" | "domain";
+  value: string;
+  reason: string | null;
+  source: string | null;
+  created_at: string;
+}
+
+function SuppressionPanel() {
+  const [entries, setEntries] = useState<SuppressionEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [info, setInfo] = useState<string | null>(null);
+  const [emailInput, setEmailInput] = useState("");
+  const [phoneInput, setPhoneInput] = useState("");
+  const [reasonInput, setReasonInput] = useState("");
+
+  async function load() {
+    setLoading(true);
+    setInfo(null);
+    try {
+      const res = await fetch("/api/suppression?limit=200");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to load");
+      setEntries(data.entries ?? []);
+      if (data.info) setInfo(data.info);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => { load(); }, []);
+
+  async function add() {
+    if (!emailInput.trim() && !phoneInput.trim()) {
+      toast.error("Enter an email or a phone");
+      return;
+    }
+    const res = await fetch("/api/suppression", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: emailInput.trim() || undefined,
+        phone: phoneInput.trim() || undefined,
+        reason: reasonInput.trim() || undefined,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) { toast.error(data.error ?? "Add failed"); return; }
+    toast.success(`Added ${data.inserted} (skipped ${data.skipped} duplicate${data.skipped === 1 ? "" : "s"})`);
+    setEmailInput(""); setPhoneInput(""); setReasonInput("");
+    load();
+  }
+
+  async function remove(id: string) {
+    const res = await fetch(`/api/suppression?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!res.ok) { toast.error("Delete failed"); return; }
+    toast.success("Removed");
+    load();
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Do-not-contact list</CardTitle>
+        <CardDescription>
+          Every email and phone here is checked at write-time across all discovery
+          pipelines (orchestrator, Maps, Visual, Partners). A contact added here
+          cannot be re-acquired from any future source.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {info && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
+            {info}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <Input value={emailInput} onChange={(e) => setEmailInput(e.target.value)} placeholder="email@example.com" />
+          <Input value={phoneInput} onChange={(e) => setPhoneInput(e.target.value)} placeholder="+33 6 12 34 56 78" />
+          <Input value={reasonInput} onChange={(e) => setReasonInput(e.target.value)} placeholder="Reason (optional)" />
+        </div>
+        <Button onClick={add} size="sm">Add to DNC list</Button>
+
+        <div className="border-t border-border/60 pt-4">
+          <p className="text-xs text-muted-foreground mb-2">
+            {loading ? "Loading…" : `${entries.length} entr${entries.length === 1 ? "y" : "ies"}`}
+          </p>
+          <div className="space-y-1 max-h-96 overflow-y-auto">
+            {entries.map((e) => (
+              <div key={e.id} className="flex items-center justify-between gap-3 text-xs px-2 py-1.5 rounded-md hover:bg-muted/40">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="uppercase text-[10px]">{e.kind}</Badge>
+                    <span className="font-mono truncate">{e.value}</span>
+                  </div>
+                  {(e.reason || e.source) && (
+                    <p className="text-muted-foreground mt-0.5">
+                      {e.reason}{e.reason && e.source ? " · " : ""}{e.source && <span className="italic">{e.source}</span>}
+                    </p>
+                  )}
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => remove(e.id)} className="h-7 text-xs text-destructive">
+                  Remove
+                </Button>
+              </div>
+            ))}
+            {!loading && entries.length === 0 && (
+              <p className="text-xs text-muted-foreground italic">No suppressions yet — DNC actions on leads will add entries here.</p>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

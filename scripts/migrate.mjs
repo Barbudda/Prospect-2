@@ -13,6 +13,10 @@ const migrations = [
   join(__dirname, "../supabase/migrations/001_initial_schema.sql"),
   join(__dirname, "../supabase/migrations/002_outreach_columns.sql"),
   join(__dirname, "../supabase/migrations/003_leads_status_index.sql"),
+  join(__dirname, "../supabase/migrations/004_intelligence_layer.sql"),
+  join(__dirname, "../supabase/migrations/005_reconstruction_layer.sql"),
+  join(__dirname, "../supabase/migrations/006_individual_hosts.sql"),
+  join(__dirname, "../supabase/migrations/007_suppression_list.sql"),
 ];
 
 const client = new pg.Client({ connectionString: DB_URL, ssl: { rejectUnauthorized: false } });

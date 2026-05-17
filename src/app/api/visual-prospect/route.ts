@@ -5,6 +5,7 @@ import { runGeoReconstruction } from "@/lib/engines/geo-reconstruction";
 import { scoreLead, getScoreLabel } from "@/lib/engines/scorer";
 import { generateOutreachAngle } from "@/lib/engines/outreach";
 import { gradeLead } from "@/lib/engines/lead-quality-gate";
+import { loadSuppressionSet, isSuppressed } from "@/lib/utils/suppression";
 import { validatePublicUrl } from "@/lib/utils/ssrf";
 import type { GeoReconstructionResult, NormalizedLead } from "@/lib/types";
 
@@ -175,6 +176,19 @@ export async function POST(req: NextRequest) {
     }
 
     const serviceSupabase = createServiceClient();
+    // Suppression list — never re-acquire a contact the user has opted out.
+    const suppressed = await loadSuppressionSet(serviceSupabase, user.id);
+    const sup = isSuppressed(suppressed, { email: lead.email, phone: lead.phone });
+    if (sup.suppressed) {
+      return NextResponse.json({
+        lead_id: null,
+        lead,
+        reconstruction,
+        images: scraped.images,
+        suppressed_dnc: true,
+        reason: `Contact is on do-not-contact list (${sup.reason})`,
+      });
+    }
     const { data: inserted, error: insertError } = await serviceSupabase
       .from("leads")
       .insert({

@@ -116,6 +116,16 @@ export async function markLeadDoNotContact(
   userId: string,
   options: DNCOptions = {}
 ): Promise<{ ok: boolean; error?: string }> {
+  // Capture the contact values BEFORE we null them out — we need them to
+  // write the suppression-list entry that prevents re-acquisition from
+  // any future source.
+  const { data: leadBefore } = await service
+    .from("leads")
+    .select("email, phone")
+    .eq("id", leadId)
+    .eq("user_id", userId)
+    .single();
+
   const updates: Record<string, unknown> = {
     outreach_status: "opted_out",
     updated_at: new Date().toISOString(),
@@ -134,6 +144,23 @@ export async function markLeadDoNotContact(
     .eq("user_id", userId);
 
   if (error) return { ok: false, error: error.message };
+
+  // Persist to the user's suppression_list so future ingestion paths
+  // (orchestrator / maps-prospect / visual-prospect / partners-discover)
+  // never re-acquire this contact. Soft-fails when migration 007 isn't
+  // applied yet — see suppression.ts for the fallback behaviour.
+  if (leadBefore?.email || leadBefore?.phone) {
+    const { addToSuppressionList } = await import("./suppression");
+    await addToSuppressionList(service, userId, [
+      {
+        email: leadBefore.email ?? null,
+        phone: leadBefore.phone ?? null,
+        reason: options.reason ?? null,
+        source: options.source ?? "manual_user_action",
+        source_lead_id: leadId,
+      },
+    ]);
+  }
 
   // Audit trail
   await service

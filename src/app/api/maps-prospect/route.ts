@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { runMapsProspect } from "@/lib/engines/maps-prospector";
 import { gradeLead } from "@/lib/engines/lead-quality-gate";
+import { loadSuppressionSet, isSuppressed } from "@/lib/utils/suppression";
 
 export const dynamic = "force-dynamic";
 // 90s covers: ~10s of Place Details + per-lead website crawl pass that
@@ -65,9 +66,14 @@ export async function POST(req: NextRequest) {
     const gated = result.leads.filter((l) => gradeLead(l).keep);
     const droppedByGate = result.leads.length - gated.length;
 
-    // Save leads (skip if same google_maps_url already saved for this user)
+    // Suppression list — drop leads whose email/phone the user marked as DNC.
     const service = createServiceClient();
-    const sourceUrls = gated.map((l) => l.source_url).filter(Boolean);
+    const suppressed = await loadSuppressionSet(service, user.id);
+    const nonSuppressed = gated.filter(
+      (l) => !isSuppressed(suppressed, { email: l.email, phone: l.phone }).suppressed
+    );
+    const droppedBySuppression = gated.length - nonSuppressed.length;
+    const sourceUrls = nonSuppressed.map((l) => l.source_url).filter(Boolean);
     const { data: existing } = sourceUrls.length
       ? await service
           .from("leads")
@@ -77,7 +83,7 @@ export async function POST(req: NextRequest) {
       : { data: [] as Array<{ source_url: string }> };
 
     const existingUrls = new Set((existing ?? []).map((e) => e.source_url));
-    const toInsert = gated
+    const toInsert = nonSuppressed
       .filter((l) => !existingUrls.has(l.source_url))
       .map((l) => ({
         user_id: user.id,
@@ -118,8 +124,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       saved: inserted.length,
-      duplicates_skipped: gated.length - toInsert.length,
+      duplicates_skipped: nonSuppressed.length - toInsert.length,
       rejected_by_quality_gate: droppedByGate,
+      suppressed_dnc: droppedBySuppression,
       total_found: result.total_found,
       queries_used: result.queries_used,
       skipped_no_contact: result.skipped_no_contact,
