@@ -447,13 +447,21 @@ export default function LeadDetailPage() {
       .catch(() => toast.error("Failed to load lead"));
   }, [id]);
 
-  async function generateOutreach() {
+  async function generateOutreach(force = false) {
     setGeneratingOutreach(true);
     try {
-      const res = await fetch(`/api/leads/${id}/outreach`, { method: "POST" });
+      const url = force ? `/api/leads/${id}/outreach?force=1` : `/api/leads/${id}/outreach`;
+      const res = await fetch(url, { method: "POST" });
       const body = await res.text();
-      let data: { email?: string; error?: string } = {};
+      let data: { email?: string; error?: string; frequency_capped?: boolean; retry_after?: string } = {};
       try { data = JSON.parse(body); } catch { /* non-json */ }
+      if (res.status === 429 && data.frequency_capped) {
+        const ok = window.confirm(
+          `${data.error}\n\nRegenerate anyway? (best practice: wait until ${data.retry_after?.slice(0, 10) ?? "the cap expires"})`
+        );
+        if (ok) return generateOutreach(true);
+        return;
+      }
       if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`);
       if (data.email) setOutreachEmail(data.email);
     } catch (err) {
@@ -1115,7 +1123,7 @@ export default function LeadDetailPage() {
             <Button
               size="sm"
               variant="outline"
-              onClick={generateOutreach}
+              onClick={() => generateOutreach()}
               disabled={generatingOutreach}
             >
               {generatingOutreach

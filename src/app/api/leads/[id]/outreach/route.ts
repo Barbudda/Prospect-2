@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { fetchWebsiteContent, generateOutreachEmail } from "@/lib/rag/outreach-generator";
+import { checkPerLeadCap } from "@/lib/utils/outreach-cap";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,19 @@ export async function POST(
 
     if (leadError || !lead) {
       return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+    }
+
+    // Frequency cap — refuse to regenerate within 90 days unless ?force=1.
+    const url = new URL(req.url);
+    const force = url.searchParams.get("force") === "1";
+    if (!force) {
+      const decision = checkPerLeadCap(lead.outreach_generated_at);
+      if (!decision.allowed) {
+        return NextResponse.json(
+          { error: decision.reason, retry_after: decision.retry_after, frequency_capped: true },
+          { status: 429 }
+        );
+      }
     }
 
     // Crawl website if we don't have content yet

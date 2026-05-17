@@ -274,6 +274,15 @@
      nav so overflow-x scroll is silent on narrow screens. */
   .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
   .no-scrollbar::-webkit-scrollbar { display: none; }
+
+  /* Shared input style for the public /tools/* pages. They don't use the
+     shadcn components (which are auth-aware) so we provide a compact
+     theme-aware input here. */
+  .input {
+    @apply w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors;
+    @apply focus:border-ring focus:ring-2 focus:ring-ring/30;
+    @apply placeholder:text-muted-foreground/60;
+  }
   /* Custom scrollbar in WebKit — quieter, theme-aware */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }

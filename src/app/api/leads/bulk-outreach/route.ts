@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { fetchWebsiteContent, generateOutreachEmail } from "@/lib/rag/outreach-generator";
+import { checkPerLeadCap } from "@/lib/utils/outreach-cap";
 
 export const dynamic = "force-dynamic";
 
@@ -14,8 +15,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { ids } = await req.json();
-    if (!Array.isArray(ids) || ids.length === 0) {
+    const body = await req.json();
+    const ids: string[] = Array.isArray(body?.ids) ? body.ids : [];
+    const force: boolean = body?.force === true;
+    if (ids.length === 0) {
       return NextResponse.json({ error: "ids array required" }, { status: 400 });
     }
     if (ids.length > 10) {
@@ -24,7 +27,7 @@ export async function POST(req: NextRequest) {
 
     const { data: leads, error: leadsError } = await supabase
       .from("leads")
-      .select("id, primary_name, lead_type, city, country, website_url, email, phone, suggested_angle, quality_summary, website_content")
+      .select("id, primary_name, lead_type, city, country, website_url, email, phone, suggested_angle, quality_summary, website_content, outreach_generated_at")
       .in("id", ids)
       .eq("user_id", user.id);
 
@@ -32,9 +35,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to fetch leads" }, { status: 500 });
     }
 
-    const results: Array<{ id: string; ok: boolean; error?: string }> = [];
+    const results: Array<{ id: string; ok: boolean; error?: string; frequency_capped?: boolean }> = [];
 
     for (const lead of leads) {
+      // Frequency cap — skip leads that had outreach in the last 90 days
+      // unless the caller explicitly passed force=true.
+      if (!force) {
+        const decision = checkPerLeadCap(lead.outreach_generated_at);
+        if (!decision.allowed) {
+          results.push({ id: lead.id, ok: false, error: decision.reason, frequency_capped: true });
+          continue;
+        }
+      }
+
       try {
         let websiteContent: string | null = lead.website_content ?? null;
         if (!websiteContent && lead.website_url) {
@@ -76,7 +89,8 @@ export async function POST(req: NextRequest) {
     }
 
     const succeeded = results.filter((r) => r.ok).length;
-    return NextResponse.json({ results, succeeded, total: leads.length });
+    const capped = results.filter((r) => r.frequency_capped).length;
+    return NextResponse.json({ results, succeeded, frequency_capped: capped, total: leads.length });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Internal error" },

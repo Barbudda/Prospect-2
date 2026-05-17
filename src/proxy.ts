@@ -31,8 +31,15 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Public-facing pages (no auth required):
+  //   /login              — auth screen
+  //   /tools/*            — free lead-magnet audit tools (Tier 4.1)
+  //   /partners/register  — public partner registration form (Tier 4.2)
+  //   /api/*              — every API route does its own auth check
   const isPublicPath =
     request.nextUrl.pathname.startsWith("/login") ||
+    request.nextUrl.pathname.startsWith("/tools") ||
+    request.nextUrl.pathname === "/partners/register" ||
     request.nextUrl.pathname.startsWith("/api/");
 
   if (!user && !isPublicPath) {
