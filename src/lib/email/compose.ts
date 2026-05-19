@@ -88,7 +88,8 @@ function leadContextBlock(lead: LeadForCompose): string {
   return parts.join("\n");
 }
 
-function parseJsonish(raw: string): { subject: string; body: string } | null {
+// Exported so tests can hit it directly without spinning up Anthropic.
+export function parseJsonish(raw: string): { subject: string; body: string } | null {
   const trimmed = raw.trim();
   // Try fenced JSON first
   const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -101,16 +102,46 @@ function parseJsonish(raw: string): { subject: string; body: string } | null {
   } catch {
     /* fall through */
   }
-  // Loose extraction: look for the first {...} block
-  const m = trimmed.match(/\{[\s\S]*?\}/);
-  if (m) {
-    try {
-      const parsed = JSON.parse(m[0]);
-      if (typeof parsed?.subject === "string" && typeof parsed?.body === "string") {
-        return { subject: parsed.subject.trim(), body: parsed.body.trim() };
+  // Loose extraction: walk from the first `{` and track brace depth so that
+  // mustache placeholders inside the body ({{primary_name}}, {{city}})
+  // don't cause an early truncation. Honour string literals — a `{` or `}`
+  // inside a quoted JSON string mustn't change the depth.
+  const start = trimmed.indexOf("{");
+  if (start !== -1) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < trimmed.length; i++) {
+      const ch = trimmed[i];
+      if (escaped) {
+        escaped = false;
+        continue;
       }
-    } catch {
-      /* give up */
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          const slice = trimmed.slice(start, i + 1);
+          try {
+            const parsed = JSON.parse(slice);
+            if (typeof parsed?.subject === "string" && typeof parsed?.body === "string") {
+              return { subject: parsed.subject.trim(), body: parsed.body.trim() };
+            }
+          } catch {
+            /* malformed — give up */
+          }
+          break;
+        }
+      }
     }
   }
   return null;
