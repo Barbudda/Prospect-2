@@ -8,13 +8,14 @@ import { useColorTheme, COLOR_THEMES, type ColorThemeId } from "@/components/col
 import { cn } from "@/lib/utils";
 import {
   Sun, Moon, LogOut, LayoutDashboard, Users, Settings, History, ScanSearch, Map,
-  Network, BarChart3, ShieldAlert, Handshake, CheckSquare, Sparkles, Activity, Palette, Check,
+  Network, BarChart3, ShieldAlert, Handshake, CheckSquare, Sparkles, Activity, Palette, Check, Mail,
 } from "lucide-react";
 
 const NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart3, highlight: true },
   { href: "/visual", label: "Visual", icon: ScanSearch, highlight: true },
   { href: "/maps", label: "Maps", icon: Map, highlight: true },
+  { href: "/mailing", label: "Mailing", icon: Mail, highlight: true },
   { href: "/ecosystem", label: "Ecosystem", icon: Sparkles, highlight: false },
   { href: "/operators", label: "Operators", icon: Network, highlight: false },
   { href: "/partners", label: "Partners", icon: Handshake, highlight: false },
