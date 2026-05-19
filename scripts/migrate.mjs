@@ -5,9 +5,13 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// Current Supabase project. Override either by setting DATABASE_URL
+// explicitly, or by exporting SUPABASE_PROJECT_REF + DB_PASSWORD so
+// you don't have to re-edit this file every time the project rotates.
+const PROJECT_REF = process.env.SUPABASE_PROJECT_REF || "yklndllhrmvhhdwcttrp";
 const DB_URL =
   process.env.DATABASE_URL ||
-  `postgresql://postgres:${process.env.DB_PASSWORD}@db.uwxsfebkcqcehzrkdcsz.supabase.co:5432/postgres`;
+  `postgresql://postgres:${process.env.DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres`;
 
 const migrations = [
   join(__dirname, "../supabase/migrations/001_initial_schema.sql"),
