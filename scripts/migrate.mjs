@@ -18,6 +18,7 @@ const migrations = [
   join(__dirname, "../supabase/migrations/006_individual_hosts.sql"),
   join(__dirname, "../supabase/migrations/007_suppression_list.sql"),
   join(__dirname, "../supabase/migrations/008_email_campaigns.sql"),
+  join(__dirname, "../supabase/migrations/009_fix_signup_trigger.sql"),
 ];
 
 const client = new pg.Client({ connectionString: DB_URL, ssl: { rejectUnauthorized: false } });
